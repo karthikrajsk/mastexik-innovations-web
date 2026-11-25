@@ -1,0 +1,287 @@
+/* BrushedTaxInvoiceTemplate.module.css */
+
+.invoiceContainer {
+  max-width: 210mm;
+  margin: 0 auto;
+  background: white;
+  border: 1px solid #000;
+  font-family: sans-serif;
+  color: #000;
+  font-size: 11px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid #000;
+}
+
+.logoContainer {
+  flex: 0 0 90px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 15px;
+  border: 1px solid #ddd;
+  padding: 4px;
+}
+
+.logo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.companyInfoContainer {
+  flex: 1;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.companyName {
+  font-size: 16px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+
+.companyAddress {
+  font-size: 10px;
+}
+
+.taxInvoiceTitle {
+  text-align: center;
+  font-size: 13px;
+  font-weight: bold;
+  padding: 3px;
+  border-bottom: 1px solid #000;
+  background-color: #f9f9f9;
+}
+
+/* Two column body */
+.mainGrid {
+  display: flex;
+  border-bottom: 1px solid #000;
+}
+
+.leftColumn {
+  width: 50%;
+  border-right: 1px solid #000;
+  display: flex;
+  flex-direction: column;
+}
+
+.rightColumn {
+  width: 50%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Stacked party sections in left column */
+.partySection {
+  padding: 6px 8px;
+  border-bottom: 1px solid #000;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.partySection:last-child {
+  border-bottom: none;
+}
+
+.sectionTitle {
+  font-weight: bold;
+  text-decoration: underline;
+  margin-bottom: 4px;
+  font-size: 9px;
+  color: #333;
+}
+
+.partyName {
+  font-weight: bold;
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.partyAddress {
+  margin-bottom: 4px;
+}
+
+.gstRow {
+  font-size: 10px;
+}
+
+/* Right column grid rows */
+.metaRow {
+  display: flex;
+  border-bottom: 1px solid #000;
+  min-height: 32px;
+}
+
+.metaRow:last-child {
+  border-bottom: none;
+}
+
+.metaCell {
+  flex: 1;
+  padding: 4px 6px;
+  border-right: 1px solid #000;
+  font-size: 10px;
+}
+
+.metaCell:last-child {
+  border-right: none;
+}
+
+.metaLabel {
+  display: block;
+  font-size: 8px;
+  color: #555;
+  margin-bottom: 1px;
+}
+
+.metaValue {
+  font-weight: bold;
+  font-size: 10px;
+  word-break: break-all;
+}
+
+/* Items Table */
+.itemsTable {
+  width: 100%;
+  border-collapse: collapse;
+  border-bottom: 1px solid #000;
+  font-size: 10px;
+}
+
+.itemsTable th {
+  border-bottom: 1px solid #000;
+  border-right: 1px solid #000;
+  padding: 4px;
+  font-weight: bold;
+  background-color: #f9f9f9;
+  text-align: center;
+}
+
+.itemsTable th:last-child {
+  border-right: none;
+}
+
+.itemsTable td {
+  border-right: 1px solid #000;
+  padding: 4px 6px;
+  vertical-align: top;
+  line-height: 1.3;
+}
+
+.itemsTable td:last-child {
+  border-right: none;
+}
+
+.itemRow {
+  min-height: 150px;
+}
+
+.textCenter {
+  text-align: center;
+}
+
+.textRight {
+  text-align: right;
+}
+
+.totalRow {
+  font-weight: bold;
+  border-top: 1px solid #000;
+  border-bottom: 1px solid #000;
+  background-color: #f9f9f9;
+}
+
+.totalRow td {
+  padding: 5px 6px;
+}
+
+.amountChargeable {
+  padding: 6px 8px;
+  border-bottom: 1px solid #000;
+  font-size: 10px;
+}
+
+/* Tax summary table */
+.taxTableContainer {
+  padding: 6px 8px;
+  border-bottom: 1px solid #000;
+}
+
+.taxTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9px;
+}
+
+.taxTable th, .taxTable td {
+  border: 1px solid #000;
+  padding: 3px 4px;
+}
+
+.taxTable th {
+  background-color: #f9f9f9;
+  font-weight: bold;
+  text-align: center;
+}
+
+.taxAmountWords {
+  padding: 4px 8px;
+  font-size: 10px;
+  border-bottom: 1px solid #000;
+}
+
+/* Footer sign block */
+.footerContainer {
+  display: flex;
+  min-height: 80px;
+}
+
+.declarationBlock {
+  width: 50%;
+  border-right: 1px solid #000;
+  padding: 6px 8px;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.signBlock {
+  width: 50%;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: center;
+  font-size: 10px;
+}
+
+.preparedByRow {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  font-weight: bold;
+  font-size: 9px;
+}
+
+.companyFor {
+  font-weight: bold;
+  text-align: right;
+  margin-bottom: 25px;
+}
+
+.authSignatory {
+  font-weight: bold;
+  text-align: right;
+}
+
+@media print {
+  .invoiceContainer {
+    border: 1px solid #000;
+  }
+}

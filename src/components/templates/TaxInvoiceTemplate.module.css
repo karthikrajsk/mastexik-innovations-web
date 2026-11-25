@@ -1,0 +1,255 @@
+/**
+ * Tax Invoice Template Styles
+ * Exact styles from the original HTML template
+ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.invoiceContainer {
+  max-width: 210mm;
+  margin: 0 auto;
+  background: white;
+  border: 2px solid #000;
+  padding: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  padding: 10px 15px;
+  border-bottom: 2px solid #000;
+}
+
+.logoContainer {
+  flex: 0 0 100px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 15px;
+}
+
+.logo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.companyInfoContainer {
+  flex: 1;
+  text-align: center;
+}
+
+.companyName {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 8px;
+  letter-spacing: 1px;
+}
+
+.companyAddress {
+  font-size: 11px;
+  margin-bottom: 3px;
+  line-height: 1.4;
+}
+
+.division {
+  font-size: 13px;
+  font-weight: bold;
+  margin-top: 8px;
+}
+
+.infoRow {
+  display: flex;
+  border-bottom: 1px solid #000;
+}
+
+.infoCell {
+  padding: 4px 8px;
+  font-size: 11px;
+  border-right: 1px solid #000;
+}
+
+.infoCell:last-child {
+  border-right: none;
+}
+
+.taxInvoiceTitle {
+  text-align: center;
+  font-size: 14px;
+  font-weight: bold;
+  padding: 4px;
+  border-bottom: 2px solid #000;
+  text-decoration: underline;
+}
+
+.invoiceDetails {
+  display: flex;
+  border-bottom: 2px solid #000;
+}
+
+.leftSection,
+.rightSection {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
+.leftSection {
+  border-right: 2px solid #000;
+}
+
+.detailRow {
+  display: flex;
+  margin-bottom: 2px;
+  line-height: 1.2;
+}
+
+.detailLabel {
+  font-weight: normal;
+  min-width: 100px;
+}
+
+.detailValue {
+  flex: 1;
+}
+
+.partySection {
+  display: flex;
+  border-bottom: 2px solid #000;
+}
+
+.buyerSection,
+.consigneeSection {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
+.buyerSection {
+  border-right: 2px solid #000;
+}
+
+.table th {
+  background-color: transparent;
+  padding: 4px;
+  text-align: center;
+  font-weight: bold;
+  border: 1px solid #000;
+  font-size: 11px;
+}
+
+.table td {
+  padding: 4px;
+  border-left: 1px solid #000;
+  border-right: 1px solid #000;
+  vertical-align: top;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 1px solid #000;
+}
+
+.textCenter {
+  text-align: center;
+}
+
+.textRight {
+  text-align: right;
+}
+
+.totalRow {
+  font-weight: bold;
+  border-top: 2px solid #000;
+  border-bottom: 2px solid #000;
+}
+
+.totalRow td {
+  border-top: 2px solid #000;
+  border-bottom: 2px solid #000;
+}
+
+.chargesSection {
+  display: flex;
+  border-bottom: 2px solid #000;
+}
+
+.additionalCharges,
+.lessCharges,
+.summaryCharges {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 11px;
+  border-right: 1px solid #000;
+  min-height: 120px;
+}
+
+.summaryCharges {
+  border-right: none;
+}
+
+.summaryRow {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.summaryRow span:nth-child(1) {
+  flex: 2;
+  font-weight: bold;
+}
+
+.summaryRow span:nth-child(2) {
+  flex: 0.2;
+}
+
+.summaryRow span:nth-child(3) {
+  flex: 1;
+  text-align: right;
+}
+
+.summaryRowGrandTotal {
+  border-top: 1px solid #000;
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.footerSection {
+  display: flex;
+}
+
+.termsSection {
+  flex: 1.2;
+  border-right: 2px solid #000;
+}
+
+.bankSection {
+  flex: 1;
+}
+
+.bankDetailRow span:nth-child(1) {
+  min-width: 120px;
+}
+
+.amountWords {
+  padding: 5px 8px;
+  font-size: 11px;
+  border-bottom: 2px solid #000;
+}
+
+.declarationText {
+  line-height: 1.5;
+  margin-top: 8px;
+}
+
+/* Print styles */
+@media print {
+  .invoiceContainer {
+    border: 2px solid #000;
+  }
+}
+

@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback, useId } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, Download, ChevronDown, ChevronUp, Edit, Trash, Eye, Plus, Filter, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Copy, Printer } from 'lucide-react';
 import { exportToExcel, exportToPdf } from '@/lib/utils';
 import { useSelector, useDispatch } from 'react-redux';
@@ -9,6 +10,7 @@ import { getAllFabricMastersForDropdown } from '@/state/fabricMasterSlice';
 import { useLocation } from 'react-router-dom';
 import apiService from '@/services/ApiService';
 import { useResolvedCompanyId } from '@/hooks/useCompanyContext';
+import { useRouteHero, type RouteHeroSummary } from '@/contexts/RouteHeroContext';
 
 let _dtAppSessionActive = false;
 
@@ -31,6 +33,12 @@ interface Column {
   disableSorting?: boolean;
 }
 
+interface DataTableSummaryConfig {
+  dataIsComplete?: boolean;
+  statusField?: string;
+  activeValues?: readonly (string | number | boolean)[];
+  inactiveValues?: readonly (string | number | boolean)[];
+}
 
 interface DataTableProps {
   columns: any[];
@@ -38,6 +46,7 @@ interface DataTableProps {
   title?: string;
   headerContent?: React.ReactNode | ((props: { filteredData: any[]; processedTotals: Record<string, number>; isSearchActive: boolean }) => React.ReactNode);
   headerActions?: React.ReactNode | ((props: { filteredData: any[]; processedTotals: Record<string, number>; isSearchActive: boolean }) => React.ReactNode);
+  summaryConfig?: DataTableSummaryConfig;
   onFilteredDataChange?: (filteredData: any[], processedTotals: Record<string, number>) => void;
   onAdd?: () => void;
   onEdit?: (row: any) => void;
@@ -101,6 +110,43 @@ interface DataTableProps {
 
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 30, 50, 100];
 
+function getExplicitStatus(row: any, config?: DataTableSummaryConfig): boolean | null {
+  const fields = config?.statusField
+    ? [config.statusField]
+    : ['activeFlag', 'isActive', 'isActiveFlag', 'active', 'status'];
+  const activeValues = config?.activeValues ?? [true, 'true', 'active', 'enabled'];
+  const inactiveValues = config?.inactiveValues ?? [false, 'false', 'inactive', 'disabled'];
+
+  for (const field of fields) {
+    if (!Object.prototype.hasOwnProperty.call(row, field)) continue;
+    const value = row[field];
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (activeValues.some((candidate) => String(candidate).toLowerCase() === normalized)) return true;
+      if (inactiveValues.some((candidate) => String(candidate).toLowerCase() === normalized)) return false;
+    }
+    return null;
+  }
+
+  return null;
+}
+
+function countStatuses(rows: any[], config?: DataTableSummaryConfig) {
+  if (rows.length === 0) return { active: 0, inactive: 0 };
+
+  let active = 0;
+  let inactive = 0;
+  for (const row of rows) {
+    const status = getExplicitStatus(row, config);
+    if (status === null) return null;
+    if (status) active += 1;
+    else inactive += 1;
+  }
+
+  return { active, inactive };
+}
+
 // Default Column Filter Component
 export function DefaultColumnFilter({ column: { filterValue, setFilter } }: any) {
   return (
@@ -108,7 +154,7 @@ export function DefaultColumnFilter({ column: { filterValue, setFilter } }: any)
       value={filterValue || ''}
       onChange={e => setFilter(e.target.value || undefined)}
       placeholder="Filter..."
-      className="w-full px-2 py-0.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-black font-medium"
+      className="w-full px-2 py-1 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#008F8C]/20 focus:border-[#008F8C] transition-all text-[#102F50] font-medium bg-white"
     />
   );
 }
@@ -125,7 +171,7 @@ export function SelectColumnFilter({
     <select
       value={filterValue ?? ''}
       onChange={e => setFilter(e.target.value || undefined)}
-      className="w-full px-1.5 py-0.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-black font-medium bg-white cursor-pointer"
+      className="w-full px-1.5 py-1 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#008F8C]/20 focus:border-[#008F8C] transition-all text-[#102F50] font-medium bg-white cursor-pointer"
     >
       <option value="">All</option>
       {options.map((option, index) => (
@@ -379,7 +425,7 @@ export function DateRangeFilter({ column: { filterValue = {}, setFilter } }: any
         value={filterValue.from || ''}
         onChange={e => setFilter({ ...filterValue, from: e.target.value })}
         placeholder="From"
-        className="w-full px-2 py-1 text-xs border border-secondary-300 rounded focus:outline-none focus:ring-1 focus:ring-primary-500 text-black font-medium"
+        className="w-full px-2 py-1 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#008F8C]/15 text-[#102F50] font-medium"
       />
       <input
         type="date"
@@ -387,7 +433,7 @@ export function DateRangeFilter({ column: { filterValue = {}, setFilter } }: any
         min={filterValue.from || ''}
         onChange={e => setFilter({ ...filterValue, to: e.target.value })}
         placeholder="To"
-        className="w-full px-2 py-1 text-xs border border-secondary-300 rounded focus:outline-none focus:ring-1 focus:ring-primary-500 text-black font-medium"
+        className="w-full px-2 py-1 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#008F8C]/15 text-[#102F50] font-medium"
       />
     </div>
   );
@@ -401,14 +447,14 @@ export function MonthRangeFilter({ column: { filterValue = {}, setFilter } }: an
         type="month"
         value={filterValue.from || ''}
         onChange={e => setFilter({ ...filterValue, from: e.target.value })}
-        className="w-full px-2 py-1 text-xs border border-secondary-300 rounded focus:outline-none focus:ring-1 focus:ring-primary-500 text-black font-medium"
+        className="w-full px-2 py-1 text-xs border border-secondary-300 rounded focus:outline-none focus:ring-1 focus:ring-[#008F8C] text-[#102F50] font-medium"
       />
       <input
         type="month"
         value={filterValue.to || ''}
         min={filterValue.from || ''}
         onChange={e => setFilter({ ...filterValue, to: e.target.value })}
-        className="w-full px-2 py-1 text-xs border border-secondary-300 rounded focus:outline-none focus:ring-1 focus:ring-primary-500 text-black font-medium"
+        className="w-full px-2 py-1 text-xs border border-secondary-300 rounded focus:outline-none focus:ring-1 focus:ring-[#008F8C] text-[#102F50] font-medium"
       />
     </div>
   );
@@ -466,6 +512,7 @@ export function DataTable({
   title,
   headerContent,
   headerActions,
+  summaryConfig,
   onAdd,
   onEdit,
   onDelete,
@@ -528,6 +575,10 @@ export function DataTable({
 }: DataTableProps) {
   const location = useLocation();
   const path = location.pathname;
+  const routeHero = useRouteHero();
+  const routeHeroId = useId();
+  const registerRouteHero = routeHero?.register;
+  const unregisterRouteHero = routeHero?.unregister;
   const resolvedCompanyId = useResolvedCompanyId();
   const storageKey = `dt-filters:${path}`;
   const canAdd = useSelector(selectHasPermission(path, 'add'));
@@ -1631,6 +1682,65 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
     return filterAndSortData(baseData, precomputedSearchData);
   }, [baseData, precomputedSearchData, filterAndSortData]);
 
+  const dataIsComplete = summaryConfig?.dataIsComplete
+    ?? (totalCount === undefined ? !propOnPageChange : data.length === totalCount);
+  const completeInternalResult = fullData !== null && (
+    totalCount !== undefined
+      ? fullData.length >= totalCount
+      : summaryConfig?.dataIsComplete === true && fullData.length >= data.length
+  );
+  const filteredResultIsComplete = isSearchActive && dataIsComplete && (
+    fullData === null || disableFullDataFetch || completeInternalResult
+  );
+  const filteredSummary = isSearchActive && filteredResultIsComplete;
+  const statusSummaryRows = dataIsComplete
+    ? (filteredSummary ? processedData : data)
+    : null;
+  const statusTotals = useMemo(
+    () => statusSummaryRows === null || loading ? null : countStatuses(statusSummaryRows, summaryConfig),
+    [statusSummaryRows, loading, summaryConfig],
+  );
+  const summaryTotal = loading
+    ? null
+    : filteredSummary
+      ? processedData.length
+      : totalCount ?? (dataIsComplete ? data.length : null);
+
+  const routeHeroSummary = useMemo<RouteHeroSummary>(() => {
+    const totalValue = summaryTotal === null ? '—' : summaryTotal.toLocaleString();
+    const statusValue = (count: number | undefined) => count === undefined ? '—' : count.toLocaleString();
+    const totalDescription = loading
+      ? 'Loading records'
+      : filteredSummary
+        ? 'Matching results'
+        : isSearchActive
+          ? 'All entries · filtered scope unavailable'
+          : summaryTotal === null
+            ? 'Complete total unavailable'
+            : 'All entries';
+    const statusDescription = loading
+      ? 'Loading status totals'
+      : statusTotals === null
+        ? 'Complete dataset required'
+        : statusTotals
+          ? filteredSummary ? 'In filtered results' : 'Across all entries'
+          : 'Status values unavailable';
+
+    return {
+      cards: [
+        { label: 'Total Entries', value: totalValue, description: totalDescription, tone: 'navy' },
+        { label: 'Active', value: statusValue(statusTotals?.active), description: statusDescription, tone: 'teal' },
+        { label: 'Inactive', value: statusValue(statusTotals?.inactive), description: statusDescription, tone: 'gold' },
+      ],
+    };
+  }, [summaryTotal, loading, filteredSummary, isSearchActive, statusTotals]);
+
+  useEffect(() => {
+    if (registerRouteHero) registerRouteHero(routeHeroId, routeHeroSummary);
+  }, [registerRouteHero, routeHeroId, routeHeroSummary]);
+
+  useEffect(() => () => unregisterRouteHero?.(routeHeroId), [unregisterRouteHero, routeHeroId]);
+
   const paginatedData = useMemo(() => {
     if (virtualScroll) return processedData;
     if (totalCount !== undefined) return processedData;
@@ -2161,9 +2271,118 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
 
   const hasActiveFilters = filterInput.trim() !== '' || Object.keys(columnFilters).length > 0;
   const activeFilterCount = (filterInput.trim() ? 1 : 0) + Object.keys(columnFilters).length;
+  const actionsInHero = !!routeHero
+    && routeHero.activeId === routeHeroId
+    && !!routeHero.actionTarget
+    && !routeHero.isCompact
+    && showToolbar;
+
+  const renderTopLevelActions = (inHero: boolean) => (
+    <div className={`flex flex-wrap items-center gap-2 ${inHero ? 'justify-end' : 'ml-auto'}`}>
+      {headerContent && (
+        <div className="flex flex-wrap items-center gap-2">
+          {typeof headerContent === 'function'
+            ? headerContent({ filteredData: processedData, processedTotals, isSearchActive })
+            : headerContent}
+        </div>
+      )}
+      {showAddActions && onAdd && canAdd && (
+        <button
+          onClick={onAdd}
+          className={inHero
+            ? 'inline-flex items-center gap-1.5 rounded-md bg-[#D0A45D] px-3 py-1.5 text-xs font-semibold text-[#082A59] transition hover:bg-[#DDB774]'
+            : 'bg-primary inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-95'}
+        >
+          <Plus className="h-3 w-3" />
+          Add Entry
+        </button>
+      )}
+      {headerActions && (
+        <div className="flex flex-wrap items-center gap-1">
+          {typeof headerActions === 'function'
+            ? headerActions({ filteredData: processedData, processedTotals, isSearchActive })
+            : headerActions}
+        </div>
+      )}
+      {title && title.toLowerCase().includes('location wise yarn') && (
+        <select
+          value={selectedAging}
+          onChange={(e) => {
+            setSelectedAging(e.target.value);
+            setCurrentPage(firstPage);
+          }}
+          className={inHero
+            ? 'inline-flex items-center rounded-md border border-white/30 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-[#00A89D]/40'
+            : 'inline-flex items-center gap-1.5 rounded-md border border-[#D8E1EA] bg-white px-3 py-1.5 text-xs font-semibold text-[#102F50] focus:outline-none focus:ring-2 focus:ring-[#008F8C]/15 focus:border-[#008F8C] transition-all font-medium cursor-pointer'}
+        >
+          <option value="Select aging">Select aging</option>
+          <option value="<30days">&lt;30days</option>
+          <option value="30-59days">30-59days</option>
+          <option value="60-89 days">60-89 days</option>
+          <option value="90 - 180 days">90 - 180 days</option>
+          <option value=">180days">&gt;180days</option>
+        </select>
+      )}
+      {showColumnFilters && (
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          className={inHero
+            ? `relative inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition ${showFilters ? 'border-[#008F8C] bg-[#008F8C] text-white' : 'border-white/30 bg-white/10 text-white hover:bg-white/20'}`
+            : `relative inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition ${showFilters ? 'border-transparent bg-primary text-white shadow-sm' : 'border-[#D8E1EA] bg-white text-[#102F50] hover:bg-[var(--primary-50)]'}`}
+          title="Toggle Column Filters"
+        >
+          <Filter className="h-3 w-3" />
+          <span>Filters</span>
+          {activeFilterCount > 0 && (
+            <span className={`absolute -top-1 -right-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-semibold shadow ${inHero ? 'bg-white text-[#008F8C]' : 'bg-white text-[var(--primary)]'}`}>
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
+      )}
+      {hasActiveFilters && (
+        <button
+          onClick={clearAllFilters}
+          className={inHero
+            ? 'inline-flex items-center gap-1.5 rounded-md border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-white/20'
+            : 'inline-flex items-center gap-1.5 rounded-lg border border-rose-100 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-100'}
+          title="Clear All Filters"
+        >
+          <X className="h-3 w-3" />
+          Clear
+        </button>
+      )}
+      {showExport && canExport && (
+        <button
+          onClick={handleExport}
+          className={inHero
+            ? 'inline-flex items-center gap-1.5 rounded-md border border-[#00A89D]/45 bg-[#008F8C]/20 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#008F8C]/35'
+            : 'inline-flex items-center gap-1.5 rounded-lg border border-[#CBE7E5] bg-[#E9F4F4] px-3 py-1.5 text-xs font-semibold text-[#007F7C] transition hover:bg-[#DDF0EF]'}
+        >
+          <Download className="h-3 w-3" />
+          Excel
+        </button>
+      )}
+      {showPdfExport && canExport && (
+        <button
+          onClick={handlePdfExport}
+          className={inHero
+            ? 'inline-flex items-center gap-1.5 rounded-md border border-[#D0A45D]/55 bg-[#D0A45D]/15 px-3 py-1.5 text-xs font-semibold text-[#F3D9A7] transition hover:bg-[#D0A45D]/25'
+            : 'inline-flex items-center gap-1.5 rounded-lg border border-amber-100 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-600 transition hover:bg-amber-100'}
+        >
+          <Download className="h-3 w-3" />
+          PDF
+        </button>
+      )}
+    </div>
+  );
+  const heroActionsPortal = actionsInHero && routeHero?.actionTarget
+    ? createPortal(renderTopLevelActions(true), routeHero.actionTarget)
+    : null;
 
   return (
-    <div className="w-full">
+    <div className="data-table-shell w-full">
+      {heroActionsPortal}
       {showToolbar && (
       <div className="no-print">
         <div className="flex flex-col">
@@ -2175,8 +2394,8 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                     <button
                       onClick={onPending}
                       className={`rounded-lg px-3 py-1 text-xs font-semibold transition ${activeTab === 'pending'
-                        ? 'bg-blue-600 text-white shadow-md'
-                        : 'text-blue-600 hover:bg-blue-50'
+                        ? 'bg-primary text-white shadow-sm'
+                        : 'text-[var(--primary)] hover:bg-[var(--primary-50)]'
                         }`}
                     >
                       Pending
@@ -2186,8 +2405,8 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                     <button
                       onClick={onApproved}
                       className={`rounded-lg px-3 py-1 text-xs font-semibold transition ${activeTab === 'approved'
-                        ? 'bg-green-600 text-white shadow-md'
-                        : 'text-green-600 hover:bg-green-50'
+                        ? 'bg-[#008F8C] text-white shadow-sm'
+                        : 'text-[#008F8C] hover:bg-[#E9F3F8]'
                         }`}
                     >
                       Approved
@@ -2218,25 +2437,25 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                   }
                 }}
                 placeholder={filterPlaceholder}
-                className="w-full rounded-md border border-slate-200 bg-white/80 pl-6 pr-8 py-1 text-xs text-black shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 font-medium"
+                className="w-full rounded-full border border-[#D8E1EA] bg-white pl-6 pr-8 py-1.5 text-xs text-[#102F50] shadow-sm focus:border-[#008F8C] focus:outline-none focus:ring-2 focus:ring-[#008F8C]/15 font-medium"
               />
               {(isSearching || isLoadingFullData) && (
                 <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center">
-                  <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-slate-200 border-t-blue-600"></div>
+                  <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-slate-200 border-t-[var(--primary)]"></div>
                 </div>
               )}
             </div>
             )}
             <div className="flex flex-wrap items-center gap-2 ml-auto">
-              {showAddActions && onAdd && canAdd && (
+              {/* {showAddActions && onAdd && canAdd && (
                 <button
                   onClick={onAdd}
-                  className="bg-primary inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-primary"
+                  className="bg-primary inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-95"
                 >
                   <Plus className="h-3 w-3" />
                   Add Entry
                 </button>
-              )}
+              )} */}
                {headerActions && (
                 <div className="flex flex-col gap-1">
                   {typeof headerActions === 'function'
@@ -2251,7 +2470,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                     setSelectedAging(e.target.value);
                     setCurrentPage(firstPage);
                   }}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all font-medium cursor-pointer"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-[#D8E1EA] bg-white text-[#102F50] px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#008F8C]/15 focus:border-[#008F8C] transition-all font-medium cursor-pointer"
                 >
                   <option value="Select aging">Select aging</option>
                   <option value="<30days">&lt;30days</option>
@@ -2261,17 +2480,17 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                   <option value=">180days">&gt;180days</option>
                 </select>
               )}
-              {showColumnFilters && (
+              {/* {showColumnFilters && (
                 <button
                   onClick={() => setShowFilters(!showFilters)}
-                  className={`relative inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${showFilters ? 'border-transparent bg-blue-600 text-white shadow-lg shadow-blue-200' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  className={`relative inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition ${showFilters ? 'border-transparent bg-primary text-white shadow-sm' : 'border-[#D8E1EA] bg-white text-[#102F50] hover:bg-[var(--primary-50)]'
                     }`}
                   title="Toggle Column Filters"
                 >
                   <Filter className="h-3 w-3" />
                   <span>Filters</span>
                   {activeFilterCount > 0 && (
-                    <span className="absolute -top-1 -right-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-white px-1 text-[10px] font-semibold text-blue-600 shadow">
+                    <span className="absolute -top-1 -right-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-white px-1 text-[10px] font-semibold text-[var(--primary)] shadow">
                       {activeFilterCount}
                     </span>
                   )}
@@ -2290,7 +2509,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
               {showExport && canExport && (
                 <button
                   onClick={handleExport}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition hover:bg-emerald-100"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#CBE7E5] bg-[#E9F4F4] px-3 py-1.5 text-xs font-semibold text-[#007F7C] transition hover:bg-[#DDF0EF]"
                 >
                   <Download className="h-3 w-3" />
                   Excel
@@ -2304,7 +2523,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                   <Download className="h-3 w-3" />
                   PDF
                 </button>
-              )}
+              )} */}
              
             </div>
           </div>
@@ -2314,10 +2533,10 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
       )}
 
       {showToolbar && totalColumnKeys && totalColumnKeys.length > 0 && (
-        <div className="no-print mb-2 flex flex-wrap items-center gap-3 rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50/90 via-indigo-50/40 to-slate-50 p-2.5 shadow-sm">
-          <div className="flex items-center gap-1.5 font-bold text-[11px] text-blue-900 uppercase tracking-wider pr-3 border-r border-blue-200">
-            <span className="inline-block w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
-            Totals Summary {isSearchActive && <span className="text-[10px] font-semibold text-blue-600 normal-case">(Filtered)</span>}
+        <div className="no-print mb-2 flex flex-wrap items-center gap-3 rounded-md border border-[#D8E1EA] bg-[#F7F9FB] p-2.5 shadow-sm">
+          <div className="flex items-center gap-1.5 font-bold text-[11px] text-[#102F50] uppercase tracking-wider pr-3 border-r border-[#D8E1EA]">
+            <span className="inline-block w-2 h-2 rounded-full bg-primary"></span>
+            Totals Summary {isSearchActive && <span className="text-[10px] font-semibold text-[var(--primary)] normal-case">(Filtered)</span>}
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
             {totalColumnKeys.map(key => {
@@ -2357,7 +2576,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
           style={virtualScroll ? { maxHeight: dynamicScrollHeight } : {}}
         >
         <table className={`border-spacing-0 text-xs common-table ${disableColumnExpand ? 'mx-auto' : 'min-w-full'} ${tableClassName || ''}`}>
-            <thead className="bg-primary text-sm font-semibold uppercase tracking-wide text-white">
+            <thead className="bg-[#082A59] text-sm font-semibold uppercase tracking-wide text-white">
               {headerGroups.map((headerGroup, groupIndex) => (
                 <tr key={groupIndex}>
                   {headerGroup.map((column) => (
@@ -2365,7 +2584,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                       key={column.id}
                       colSpan={column.colSpan}
                       rowSpan={column.rowSpan}
-                      className={`sticky z-20 bg-primary relative px-2 py-1.5 text-left text-[11px] font-bold uppercase tracking-wide ${!disableSorting && !column.disableSorting && !column.columns ? 'cursor-pointer' : ''} border-r border-b border-blue-700 last:border-r-0 ${column.headerClassName || 'text-white'}`}
+                      className={`sticky z-20 bg-[#082A59] relative px-2 py-1.5 text-left text-[11px] font-bold uppercase tracking-wide ${!disableSorting && !column.disableSorting && !column.columns ? 'cursor-pointer' : ''} border-r border-b border-[#174B7A] last:border-r-0 ${column.headerClassName || 'text-white'}`}
                       onClick={() => !disableSorting && !column.disableSorting && !column.columns && column.id !== 'select' && handleSort(column.id)}
                       style={{
                         top: groupIndex === 0 ? '0px' : '36px',
@@ -2394,7 +2613,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                       {/* Resize Handle - only for leaf columns */}
                       {!column.columns && (
                         <div
-                          className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-blue-300 z-10"
+                          className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-[#D0A45D] z-10"
                           onMouseDown={(e) => handleMouseDown(e, column.id)}
                         />
                       )}
@@ -2403,7 +2622,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                   {groupIndex === 0 && showActions && (
                   <th
                       rowSpan={headerGroups.length}
-                      className="sticky top-0 z-20 bg-primary px-2 py-1.5 text-left text-xs font-bold text-white uppercase tracking-wider border-r border-blue-700"
+                      className="sticky top-0 z-20 bg-[#082A59] px-2 py-1.5 text-left text-xs font-bold text-white uppercase tracking-wider border-r border-[#174B7A]"
                       style={Object.keys(columnWidths).length > 0 ? { width: '150px' } : {}}
                     >
                       Actions
@@ -2507,13 +2726,14 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                       <tr
                         key={key}
                         id={rowId}
+                        data-record-row
                         onClick={() => onRowClick?.(row)}
                         onDoubleClick={() => onRowDoubleClick?.(row)}
                         className={`${
                           highlightRowId != null && row.id === highlightRowId
-                            ? 'bg-blue-100 ring-2 ring-inset ring-blue-400 transition-all duration-500'
-                            : (getRowClassName?.(row) || (index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'))
-                        } border-slate-100 transition hover:bg-blue-50/80 ${onRowClick ? 'cursor-pointer' : ''}`}
+                            ? 'bg-[var(--primary-100)] ring-2 ring-inset ring-[var(--primary-500)] transition-all duration-500'
+                            : (getRowClassName?.(row) || 'bg-white')
+                        } border-slate-200 transition hover:bg-[var(--primary-50)] ${onRowClick ? 'cursor-pointer' : ''}`}
                       >
                         {enhancedColumns.map((column, colIdx) => {
                           let cellValue = typeof column.accessor === 'function' 
@@ -2586,7 +2806,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                                 minWidth: columnWidths[column.id] ? `${columnWidths[column.id]}px` : (column.minWidth ? `${column.minWidth}px` : (typeof column.width === 'number' ? `${column.width}px` : undefined)),
                                 maxWidth: columnWidths[column.id] ? `${columnWidths[column.id]}px` : (typeof column.width === 'number' ? `${column.width}px` : undefined),
                               }}
-                              className={`border-b border-r border-slate-600 px-2 py-1 text-left align-middle ${bodyCellClassName || 'text-[12.5px]'} ${column.isSectionStart ? 'border-l-4 border-l-blue-400' : ''} ${column.cellClassName || ''}`}
+                              className={`border-b border-r border-slate-300 px-2 py-1 text-left align-middle ${bodyCellClassName || 'text-[12.5px]'} ${column.isSectionStart ? 'border-l-4 border-l-[#D0A45D]' : ''} ${column.cellClassName || ''}`}
                             >
                               <div className={column.cellContentClassName !== undefined ? column.cellContentClassName : (cellContentClassName !== undefined ? cellContentClassName : "overflow-hidden whitespace-nowrap text-ellipsis")}>
                                 {column.Cell ? column.Cell({ value: cellValue, row: { original: row, index: externalOffset + (virtualScroll ? index : (currentPage - firstPage) * pageSize + index) } }) : cellValue}
@@ -2608,7 +2828,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                                   {onView && canView && (
                                     <button
                                       onClick={() => onView(row)}
-                                      className="rounded-lg border border-blue-100 bg-blue-50/60 p-1.5 text-blue-600 transition hover:border-blue-200"
+                                      className="rounded-md border border-[var(--primary-200)] bg-[var(--primary-50)] p-1.5 text-[var(--primary)] transition hover:border-[var(--primary-500)]"
                                       title="View"
                                     >
                                       <Eye className="h-4 w-4" />
@@ -2626,7 +2846,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                                   {onPrint && canPrintPermission && (
                                     <button
                                       onClick={() => onPrint(row)}
-                                      className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-1.5 text-emerald-600 transition hover:border-emerald-200"
+                                      className="rounded-lg border border-[#CBE7E5] bg-[#E9F4F4] p-1.5 text-[#007F7C] transition hover:border-[#93D0CD]"
                                       title="Print"
                                     >
                                       <Printer className="h-4 w-4" />
@@ -2691,7 +2911,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                       {hasActiveFilters && (
                         <button
                           onClick={clearAllFilters}
-                          className="text-sm font-medium text-blue-600 underline-offset-4 hover:underline"
+                          className="text-sm font-medium text-[var(--primary)] underline-offset-4 hover:underline"
                         >
                           Clear filters to view everything
                         </button>
@@ -2707,7 +2927,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                 return (
                   <tr
                     key={`summary-${index}`}
-                    className={`font-bold ${isGrand ? 'bg-yellow-100' : 'bg-gray-100'}`}
+                    className={`font-bold ${isGrand ? 'bg-[#EAF1F7]' : 'bg-slate-100'}`}
                   >
                     {enhancedColumns.map((column, colIdx) => {
                       const value = row[column.accessorKey];
@@ -2770,7 +2990,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
             <select
               value={pageSize}
               onChange={(e) => handlePageSizeSelect(Number(e.target.value))}
-              className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm font-medium text-black focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              className="rounded-md border border-[#D8E1EA] px-3 py-1.5 text-sm font-medium text-[#102F50] focus:border-[#008F8C] focus:outline-none focus:ring-2 focus:ring-[#008F8C]/15"
             >
               {effectivePageSizeOptions.map((size) => (
                 <option key={size} value={size}>
@@ -2816,8 +3036,8 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                       onClick={() => setCurrentPage(pageNum)}
                       className={`min-w-[2.5rem] rounded-xl px-3 py-2 text-sm font-semibold transition ${
                         safeCurrentPage === pageNum
-                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
-                          : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                          ? 'bg-primary text-white shadow-sm'
+                          : 'border border-slate-200 bg-white text-slate-700 hover:bg-[var(--primary-50)]'
                       }`}
                     >
                       {pageNum}

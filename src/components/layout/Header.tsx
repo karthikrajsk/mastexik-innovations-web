@@ -1,147 +1,120 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Menu } from 'lucide-react';
-import { useThemeStore } from '@store/themeStore';
+import { useContext } from 'react';
+import { Menu, X } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { cn } from '@lib/utils';
-import { useAuth } from '@/contexts/AuthContext';
+import { TitleContext, useRouteTitle } from '@/routes/TitleContext';
+import { useRouteHero } from '@/contexts/RouteHeroContext';
 
 interface HeaderProps {
-  collapsed?: boolean;
   mobileOpen?: boolean;
   onMobileToggle?: () => void;
 }
 
-// Eagerly resolve image modules inside src/assets/Images/ so Vite bundler packages them in production builds
-const logoModules = import.meta.glob<{ default: string }>('@/assets/Images/*.{png,jpg,jpeg,svg,webp}', { eager: true });
-const logoAssetUrls = Object.values(logoModules)
-  .map((mod) => (typeof mod === 'string' ? mod : mod?.default))
-  .filter(Boolean);
+function getSectionLabel(pathname: string): string {
+  const firstSegment = pathname.split('/').filter(Boolean)[0]?.toLowerCase();
+  const sections: Record<string, string> = {
+    masters: 'Masters',
+    'location-masters': 'Masters',
+    transaction: 'Transactions',
+    reports: 'Reports',
+    agency: 'Agency',
+    settings: 'Settings',
+  };
 
-const bundledLogo = logoAssetUrls[0] || '';
-
-export function Header({ collapsed = false, mobileOpen = false, onMobileToggle }: HeaderProps) {
-  const { theme } = useThemeStore();
-  const { user } = useAuth();
-  const [userRole, setUserRole] = useState<string>('');
-
-  useEffect(() => {
-    const storedPayload = localStorage.getItem('authPayload');
-    if (storedPayload) {
-      try {
-        const parsedPayload = JSON.parse(storedPayload);
-        const u = parsedPayload.user;
-        if (u && u.role) {
-          setUserRole(String(u.role));
-        } else if (user?.role) {
-          setUserRole(String(user.role));
-        }
-      } catch {
-        // ignore
-      }
-    } else if (user?.role) {
-      setUserRole(String(user.role));
-    }
-  }, [user]);
-
-  const isBrushingRole = useMemo(() => {
-    const roleStr = userRole || user?.role || '';
-    const normalized = String(roleStr).trim().toLowerCase();
-    return normalized === 'brushing' || normalized.includes('brushing');
-  }, [userRole, user]);
-
-  return (
-    <>
-      <header
-        className={cn(
-          'bg-white border-b border-secondary-200 fixed top-0 right-0 left-0',
-          collapsed ? 'lg:left-16' : 'lg:left-72',
-          'min-h-[3.25rem] md:min-h-[4.5rem] py-1 md:py-2 z-30 transition-all duration-300 shadow-sm',
-        )}
-      >
-        <div className="h-full px-2 sm:px-4 md:px-5 flex items-center justify-between gap-2 md:gap-4">
-
-          {/* Left side: Hamburger (mobile/tablet only) - pinned to left so it is always visible */}
-          <div className="flex items-center shrink-0">
-            <button
-              onClick={onMobileToggle}
-              className={cn(
-                'lg:hidden p-2 rounded-md hover:bg-secondary-100 transition-colors',
-                'text-secondary-700 shrink-0 focus:outline-none focus:ring-2 focus:ring-primary/20',
-              )}
-              aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-            >
-              <Menu className="w-6 h-6" />
-            </button>
-          </div>
-
-          {/* Center Column: Minimized on mobile, full factory address on desktop */}
-          <div className="min-w-0 flex-1 text-center py-1 px-1">
-            {/* Mobile View: Minimized header info to keep menu button and logo visible */}
-            <div className="md:hidden flex flex-col items-center justify-center">
-              <div className="font-bold text-secondary-900 text-xs sm:text-sm truncate max-w-[190px] xs:max-w-[240px]">
-                Hayagreevas Fabrics
-              </div>
-              <div className="text-[11px] text-secondary-700 font-semibold leading-tight">
-                {isBrushingRole ? 'Unit C' : 'Unit A'}
-              </div>
-              <div className="text-[10px] text-secondary-500 font-medium truncate">
-                GST : 33AACCH7673P1Z0
-              </div>
-            </div>
-
-            {/* Desktop View (md and up): Full Factory Address */}
-            <div className="hidden md:block text-center text-xs leading-tight font-sans text-secondary-800">
-              <div className="font-bold text-secondary-900 text-xs md:text-sm">
-                Hayagreevas Fabrics Private Limited
-              </div>
-              <div className="font-semibold text-secondary-900 text-xs">
-                {isBrushingRole ? 'Unit C' : 'Unit A'}
-              </div>
-              {isBrushingRole ? (
-                <div className="whitespace-nowrap">264/4, Kallangadu thottam, Panikkampatti, Palladam - 641 664.</div>
-              ) : (
-                <div className="whitespace-nowrap">
-                  SF.No : 193, P.Vadugapalayam, Pollachi Road, Palladam - 641 664.
-                </div>
-              )}
-              <div>Tirupur District.</div>
-              <div className="font-bold text-secondary-900 mt-0.5">
-                GST No : 33AACCH7673P1Z0
-              </div>
-            </div>
-          </div>
-
-          {/* Right side: Asset Image (Company Logo) */}
-          <div className="flex items-center justify-end shrink-0">
-            {bundledLogo ? (
-              <img
-                src={bundledLogo}
-                alt="Company Logo"
-                className="h-8 sm:h-10 md:h-14 w-auto object-contain max-w-[110px] sm:max-w-[160px] md:max-w-[240px]"
-              />
-            ) : (
-              <img
-                src="/assets/Images/logo.png"
-                alt="Company Logo"
-                className="h-8 sm:h-10 md:h-14 w-auto object-contain max-w-[110px] sm:max-w-[160px] md:max-w-[240px]"
-                onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none';
-                }}
-              />
-            )}
-          </div>
-        </div>
-
-        <div className="h-1 absolute bottom-0 left-0 right-0" style={{ backgroundColor: getThemeColor(theme) }} />
-      </header>
-    </>
-  );
+  return sections[firstSegment || ''] || (firstSegment ? 'Workspace' : 'Overview');
 }
 
-function getThemeColor(theme: string): string {
-  switch (theme) {
-    case 'green': return '#22c55e';
-    case 'purple': return '#a855f7';
-    case 'orange': return '#f97316';
-    default: return '#3b82f6';
-  }
+export function Header({ mobileOpen = false, onMobileToggle }: HeaderProps) {
+  const location = useLocation();
+  const { titleMap } = useContext(TitleContext);
+  const { title, hideTitle } = useRouteTitle(location.pathname, titleMap);
+  const routeHero = useRouteHero();
+  const pageTitle = title && !hideTitle ? title : 'Textile Operations';
+  const section = getSectionLabel(location.pathname);
+
+  return (
+    <header className="fixed top-3 right-3 left-3 lg:left-[240px] z-30 h-[112px] sm:h-[120px] lg:h-[124px] overflow-visible text-white">
+      <div className="relative h-full overflow-hidden rounded-2xl bg-[#082A59] shadow-[0_10px_26px_rgba(6,30,65,0.16)]">
+        <div className="absolute -right-10 -top-10 h-64 w-64 rounded-full border border-white/10" aria-hidden="true" />
+        <div className="absolute right-10 -top-10 h-48 w-48 rounded-full border border-white/[0.07]" aria-hidden="true" />
+        <div className="relative flex h-full items-start pt-3 sm:pt-3.5 lg:pt-4 gap-3 px-4 sm:px-6 lg:px-7">
+          <button
+            onClick={onMobileToggle}
+            className={cn(
+              'lg:hidden mt-0.5 shrink-0 rounded-lg p-2 text-white/85 transition-colors hover:bg-white/10 hover:text-white',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D0A45D]',
+            )}
+            aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={mobileOpen}
+          >
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+
+          <div className="min-w-0 flex-1">
+            <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-[#D0A45D] sm:text-[10px]">
+              {section}
+            </p>
+            <h1
+              className="max-w-3xl min-w-0 break-words font-serif text-[19px] leading-tight tracking-[-0.025em] text-[#FFFDF8] sm:text-[22px] lg:text-[24px]"
+              style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden' }}
+            >
+              {pageTitle}
+            </h1>
+            <p className="mt-0.5 text-[10px] text-[#DCE7F3]/85 sm:text-xs">
+              Production, inventory and order management
+            </p>
+          </div>
+
+          {routeHero && !routeHero.isCompact && (
+            <div
+              ref={routeHero.setActionTarget}
+              className="hidden min-w-0 max-w-[52%] flex-1 items-center justify-end md:flex"
+              aria-label="Page actions"
+            />
+          )}
+        </div>
+        <div className="absolute bottom-0 left-0 h-px w-full bg-gradient-to-r from-[#D0A45D]/75 via-[#008F8C]/45 to-transparent" aria-hidden="true" />
+      </div>
+
+      {routeHero?.summary && (
+        <section
+          className="absolute left-2 right-2 top-full z-20 -translate-y-3 sm:-translate-y-3.5 sm:left-4 sm:right-4 lg:left-5 lg:right-5"
+          aria-label="Record summary"
+        >
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            {routeHero.summary.cards.map((card) => {
+              const accent = card.tone === 'teal'
+                ? 'bg-[#008F8C]'
+                : card.tone === 'gold'
+                  ? 'bg-[#C99A4A]'
+                  : 'bg-[#0B376E]';
+              const valueColor = card.tone === 'teal'
+                ? 'text-[#008F8C]'
+                : card.tone === 'gold'
+                  ? 'text-[#9B702F]'
+                  : 'text-[#082A59]';
+
+              return (
+                <article
+                  key={card.label}
+                  className="relative min-h-[72px] overflow-hidden rounded-xl border border-[#D8E1EA] bg-white px-3 py-2 shadow-[0_8px_20px_rgba(15,48,78,0.09)] sm:min-h-[76px] sm:px-4 sm:py-2.5"
+                >
+                  <span className={cn('absolute left-0 top-0 h-full w-[3.5px]', accent)} aria-hidden="true" />
+                  <p className="truncate text-[16px] font-semibold text-[#082A59] sm:text-[18px]">
+                    {card.label}
+                  </p>
+                  <p className={cn('mt-0.5 font-serif text-[18px] font-bold leading-none sm:text-[22px]', valueColor)}>
+                    {card.value}
+                  </p>
+                  <p className="mt-1 truncate text-[11px] leading-tight text-[#6E8499] sm:text-[12px]">
+                    {card.description}
+                  </p>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
+    </header>
+  );
 }

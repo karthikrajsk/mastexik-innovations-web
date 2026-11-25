@@ -192,7 +192,7 @@ export function PaymentTermsMaster() {
   };
 
   return (
-    <div className="p-6 pt-16">
+    <div>
      
       <DataTable
         columns={columns}

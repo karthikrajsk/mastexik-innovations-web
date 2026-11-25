@@ -3,10 +3,10 @@ import { Palette } from 'lucide-react';
 import { useThemeStore } from '../../store/themeStore';
 
 const themes = [
-  { id: 'default', name: 'Blue', color: '#3b82f6' },
-  { id: 'green', name: 'Green', color: '#22c55e' },
-  { id: 'purple', name: 'Purple', color: '#a855f7' },
-  { id: 'orange', name: 'Orange', color: '#f97316' },
+  { id: 'default', name: 'Mastexik', color: '#082A59' },
+  { id: 'green', name: 'Teal', color: '#008F8C' },
+  { id: 'purple', name: 'Deep Blue', color: '#123B70' },
+  { id: 'orange', name: 'Gold', color: '#C99A4A' },
 ];
 
 export function ThemeSelector({ alignOutside = false }: { alignOutside?: boolean }) {
@@ -40,19 +40,19 @@ export function ThemeSelector({ alignOutside = false }: { alignOutside?: boolean
     <div className="relative z-50" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="p-2 rounded-full hover:bg-secondary-100 flex items-center"
+        className="p-2 rounded-md text-white/80 hover:bg-white/10 hover:text-white flex items-center transition-colors"
         aria-label="Change theme"
       >
         <Palette className="w-5 h-5" />
       </button>
 
       {isOpen && (
-        <div className={`absolute mt-2 w-48 bg-white rounded-md shadow-lg z-50 py-1 ${alignOutside ? 'left-full ml-2' : 'right-0'}`}>
-          <div className="px-4 py-2 text-sm text-secondary-500 border-b">Select Theme</div>
+        <div className={`absolute mt-2 w-48 bg-white rounded-md shadow-xl border border-[#D8E1EA] z-50 py-1 ${alignOutside ? 'left-full ml-2' : 'right-0'}`}>
+          <div className="px-4 py-2 text-sm text-[#536A81] border-b border-[#EDF2F6]">Select Theme</div>
           {themes.map((t) => (
             <button
               key={t.id}
-              className="flex items-center w-full px-4 py-2 text-sm text-left hover:bg-secondary-100"
+              className="flex items-center w-full px-4 py-2 text-sm text-left text-[#102F50] hover:bg-[#E9F3F8]"
               onClick={() => handleThemeChange(t.id)}
             >
               <span

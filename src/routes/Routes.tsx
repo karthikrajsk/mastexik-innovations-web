@@ -333,7 +333,8 @@ const RoutesConfig: React.FC = () => {
           path="/*"
           element={<PrivateRoute />}
         >
-          <Route index element={<Dashboard />} title="Dashboard" hideTitle = {true} />
+          <Route index element={<Dashboard />} title="Dashboard" hideTitle={true} />
+          <Route path="dashboard" element={<Dashboard />} title="Dashboard" hideTitle={true} />
           {/* Masters Routes */}
           <Route path="masters">
             <Route path="category" element={<CategoryMaster />} title="Category Master" />

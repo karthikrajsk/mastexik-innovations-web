@@ -1,27 +1,34 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Eye, EyeOff, User, Lock, Loader2, Scissors, Layers, ChevronDown } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Eye, EyeOff, User, Lock, Loader2, Layers, ChevronDown, AlertCircle } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDispatch, useSelector } from 'react-redux';
 import { AppDispatch, RootState } from '@/state/store';
 import { getAllCompanies } from '@/state/company-master-slice';
-import { AuthResponse, authService, ValidationResponse } from '@/contexts/AuthService';
+import { authService, ValidationResponse } from '@/contexts/AuthService';
+import { toast } from 'react-toastify';
+import mastexikLogo from '@/assets/Images/mastexik-logo.png';
 
 const Login: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
-  const { companyMasterList: companies, loading: companyLoading } = useSelector((state: RootState) => state.companyMaster);
+  const { companyMasterList: companies, loading: companyLoading } = useSelector(
+    (state: RootState) => state.companyMaster
+  );
 
   const [credentials, setCredentials] = useState({
-    userName: '',
+    userName: localStorage.getItem('savedUserName') || '',
     password: '',
   });
-  const [error, setError] = useState<React.ReactNode>(''); // Change to ReactNode
+  const [rememberMe, setRememberMe] = useState<boolean>(() => {
+    return localStorage.getItem('rememberMe') !== 'false';
+  });
+  const [error, setError] = useState<React.ReactNode>('');
   const [loading, setLoading] = useState(false);
   const [validating, setValidating] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
   const [userValidation, setUserValidation] = useState<ValidationResponse | null>(null);
-  const [showForceLogoutOption, setShowForceLogoutOption] = useState(false); // Add this state
+  const [showForceLogoutOption, setShowForceLogoutOption] = useState(false);
 
   const navigate = useNavigate();
   const { isAuthenticated, login } = useAuth();
@@ -39,65 +46,11 @@ const Login: React.FC = () => {
       navigate(from, { replace: true });
     }
 
-    // Check if another company is already active in THIS browser when the login page loads
     const checkExistingSession = () => {
-      const activeSessionsRaw = localStorage.getItem('active_sessions');
-      const authPayloadRaw = localStorage.getItem('authPayload');
-      
-      let existingCompanyName = '';
-      let hasActiveSession = false;
-
-      if (activeSessionsRaw) {
-        try {
-          const sessions = JSON.parse(activeSessionsRaw);
-          const now = Date.now();
-          // Heartbeat check: consider session active if it updated in the last 60s
-          const active = Object.values(sessions).find((s: any) => (now - s.timestamp < 60000)) as any;
-          if (active) {
-            existingCompanyName = active.companyName;
-            hasActiveSession = true;
-          }
-        } catch (e) {
-          console.error('Error parsing active_sessions', e);
-        }
-      }
-
-      // If heartbeat exists, prioritize it. If no heartbeat but authPayload exists, 
-      // check if it's potentially stale (active_sessions usually has the heartbeat)
-      if (!hasActiveSession && authPayloadRaw) {
-        try {
-          const payload = JSON.parse(authPayloadRaw);
-          // If we have an authPayload but NO heartbeat in active_sessions for a while,
-          // it might be a stale session from a crash/timeout.
-          // However, for safety, if authPayload exists, we still warn unless we're sure.
-          existingCompanyName = payload.user?.selectedCompany?.name || 'another company';
-          hasActiveSession = true;
-        } catch (e) {
-          console.error('Error parsing authPayload', e);
-        }
-      }
-
-      // if (hasActiveSession) {
-      //   setError(
-      //     <div className="space-y-2">
-      //       <p>Warning: You are already logged in to "{existingCompanyName}" in another tab.</p>
-      //       <p className="text-xs">Only one company login is allowed at a time across all tabs. Please close other tabs or logout from "{existingCompanyName}" first.</p>
-      //     </div>
-      //   );
-      // } else {
-      //   // Clear error if no active session conflict found (crucial for dynamic updates)
-      //   setError((prev: any) => {
-      //     if (prev && typeof prev === 'object' && prev.props?.className === 'space-y-2') {
-      //       return '';
-      //     }
-      //     return prev;
-      //   });
-      // }
+      // Reserved for session verification if needed
     };
 
     checkExistingSession();
-
-    // Listen for tab focus/visibility to re-check session status dynamically
     window.addEventListener('focus', checkExistingSession);
     window.addEventListener('visibilitychange', checkExistingSession);
 
@@ -107,277 +60,27 @@ const Login: React.FC = () => {
     };
   }, [isAuthenticated, navigate, location]);
 
-  // Get user companies from validation response
+  // Map user company IDs to full company info
   const userCompanies = useMemo(() => {
     if (!userValidation?.companies) return [];
 
-    const userCompanyIds = userValidation.companies.map(id => Number(id));
+    const userCompanyIds = userValidation.companies.map((id) => Number(id));
     return (companies || [])
       .filter((company: any) => userCompanyIds.includes(Number(company.id ?? company.companyId)))
       .map((company: any) => ({
         id: Number(company.id ?? company.companyId),
-        name: String(company.companyName ?? company.name ?? company.company_name ?? 'Unknown Company')
+        name: String(company.companyName ?? company.name ?? company.company_name ?? 'Unknown Company'),
       }));
   }, [companies, userValidation]);
 
-  // Auto-select company if only one available
+  // Auto-select company if only one is available
   useEffect(() => {
     if (userValidation && userCompanies.length === 1) {
       setSelectedCompanyId(String(userCompanies[0].id));
-    } else {
+    } else if (!userValidation) {
       setSelectedCompanyId('');
     }
   }, [userValidation, userCompanies]);
-
-  const handleValidate = async () => {
-    if (credentials.userName && credentials.password) {
-      setValidating(true);
-      setError('');
-
-      try {
-        // Fetch all companies to ensure we have the latest list before validation
-        await dispatch(getAllCompanies({ fetchAll: true })).unwrap();
-        
-        const validation = await authService.validateUser(credentials.userName, credentials.password);
-        setUserValidation(validation);
-
-        if (!validation.companies || validation.companies.length === 0) {
-          setError('No companies assigned to this user. Contact administrator.');
-        }
-      } catch (err: any) {
-        setUserValidation(null);
-        setError(err.response?.data?.message || 'Invalid username or password');
-      } finally {
-        setValidating(false);
-      }
-    } else {
-      setUserValidation(null);
-      setError('');
-    }
-  };
-  // In Login.tsx - Update the handleSubmit function
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setLoading(true);
-  setError('');
-  setShowForceLogoutOption(false);
-
-  // Parse as Number early for consistent comparison
-  const currentCompanyId = selectedCompanyId ? Number(selectedCompanyId) : undefined;
-
-  if (!userValidation) {
-    setError('Please enter valid credentials');
-    setLoading(false);
-    return;
-  }
-
-  if (userCompanies.length > 0 && !selectedCompanyId) {
-    setError('Please select a company');
-    setLoading(false);
-    return;
-  }
-
-  // Cross-tab check: See if another company is already logged in
-  try {
-    const getConflictCompanyName = () => {
-      // 1. Check traditional authPayload
-      const existingAuthPayload = localStorage.getItem('authPayload');
-      if (existingAuthPayload) {
-        const parsed = JSON.parse(existingAuthPayload);
-        const existingUser = parsed.user;
-        const existingCompanyId = existingUser?.selectedCompany?.id || existingUser?.companyId;
-        
-        if (existingCompanyId && Number(existingCompanyId) !== currentCompanyId) {
-          return existingUser?.selectedCompany?.name || 'another company';
-        }
-      }
-
-      // 2. Check active_sessions heartbeat
-      const activeSessionsRaw = localStorage.getItem('active_sessions');
-      if (activeSessionsRaw) {
-        const activeSessions = JSON.parse(activeSessionsRaw);
-        const now = Date.now();
-        const otherActiveSession = Object.values(activeSessions).find((s: any) => 
-          Number(s.companyId) !== currentCompanyId && (now - s.timestamp < 60000)
-        ) as any;
-
-        if (otherActiveSession) {
-          return otherActiveSession.companyName;
-        }
-      }
-      return null;
-    };
-
-    const conflictName = getConflictCompanyName();
-    if (conflictName) {
-      setError(`Access Denied: You are already logged in to "${conflictName}" in another tab. Only one company login is allowed at a time across all tabs. Please close other tabs or logout from "${conflictName}" first.`);
-      setLoading(false);
-      return;
-    }
-  } catch (err) {
-    console.error('Error checking existing session:', err);
-  }
-
-  try {
-    console.log('🔐 Attempting login', { userName: credentials.userName, companyId: currentCompanyId });
-
-    const authResponse = await authService.login({
-      ...credentials,
-      companyId: currentCompanyId
-    });
-
-    console.log('✅ Login response:', authResponse);
-
-    if (authResponse.success) {
-      const selectedCompanyObj = userCompanies.find((c: any) => String(c.id) === selectedCompanyId) || null;
-
-      const userData = {
-        id: authResponse.user.id,
-        userName: authResponse.user.userName,
-        role: authResponse.user.role,
-        companies: userCompanies,
-        selectedCompany: selectedCompanyObj,
-        companyId: selectedCompanyObj?.id || undefined,
-        sessionId: authResponse.sessionId
-      };
-
-      const authPayload = {
-        token: `user-${authResponse.user.id}-${Date.now()}`,
-        user: userData
-      };
-
-      console.log('💾 Saving auth data to localStorage');
-      localStorage.setItem('authPayload', JSON.stringify(authPayload));
-      localStorage.setItem('selectedCompanyId', selectedCompanyId || '');
-      localStorage.setItem('sessionId', authResponse.sessionId || '');
-
-      console.log('🚀 Calling AuthContext login');
-      login(authPayload.token, userData, authResponse.menuData);
-
-      console.log('📍 Navigating to dashboard');
-      const wasLoggedOut = sessionStorage.getItem('intentionalLogout') === 'true';
-      if (wasLoggedOut) sessionStorage.removeItem('intentionalLogout');
-      const from = wasLoggedOut ? '/' : ((location.state as any)?.from?.pathname || '/');
-      navigate(from, { replace: true });
-    } else {
-      setError('Authentication failed');
-    }
-  } catch (err: any) {
-    console.error('❌ Login error:', err);
-    
-    // Check if it's a "already logged in" error
-    const errorMessage = err.response?.data?.message || '';
-    if (errorMessage.includes('already logged in from another device')) {
-      console.log('🔄 User logged in from another device, showing force logout option');
-      setError('Your account is already logged in from another device. Do you want to logout from all other devices and login here?');
-      setShowForceLogoutOption(true);
-    } else {
-      setError(errorMessage || 'Unable to login at the moment. Please try again.');
-    }
-  } finally {
-    setLoading(false);
-  }
-};
-
-// Add the force logout function
-const handleForceLogoutAndLogin = async () => {
-  console.log('🔄 Force logout and login initiated');
-  setLoading(true);
-  setError('');
-  setShowForceLogoutOption(false);
-
-  // Parse as Number early for consistent comparison
-  const currentCompanyId = selectedCompanyId ? Number(selectedCompanyId) : undefined;
-
-  try {
-    // Cross-tab check: See if another company is already logged in
-    try {
-      const getConflictCompanyName = () => {
-        const existingAuthPayload = localStorage.getItem('authPayload');
-        if (existingAuthPayload) {
-          const parsed = JSON.parse(existingAuthPayload);
-          const existingUser = parsed.user;
-          const existingCompanyId = existingUser?.selectedCompany?.id || existingUser?.companyId;
-          if (existingCompanyId && Number(existingCompanyId) !== currentCompanyId) {
-            return existingUser?.selectedCompany?.name || 'another company';
-          }
-        }
-
-        const activeSessionsRaw = localStorage.getItem('active_sessions');
-        if (activeSessionsRaw) {
-          const activeSessions = JSON.parse(activeSessionsRaw);
-          const now = Date.now();
-          const otherActiveSession = Object.values(activeSessions).find((s: any) => 
-            Number(s.companyId) !== currentCompanyId && (now - s.timestamp < 60000)
-          ) as any;
-          if (otherActiveSession) {
-            return otherActiveSession.companyName;
-          }
-        }
-        return null;
-      };
-
-      const conflictName = getConflictCompanyName();
-      if (conflictName) {
-        setError(`Access Denied: You are already logged in to "${conflictName}" in another tab. Only one company login is allowed at a time across all tabs. Please close other tabs or logout from "${conflictName}" first.`);
-        setLoading(false);
-        return;
-      }
-    } catch (err) {
-      console.error('Error checking existing session:', err);
-    }
-
-    // First, force logout from all devices
-    console.log('📡 Calling force logout for user:', credentials.userName);
-    await authService.forceLogoutUser(credentials.userName);
-    console.log('✅ Force logout successful');
-    
-    // Wait a moment for backend to process
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Then proceed with normal login
-    console.log('🔐 Attempting login after force logout');
-    const authResponse = await authService.login({
-      ...credentials,
-      companyId: currentCompanyId
-    });
-
-    if (authResponse.success) {
-      const selectedCompanyObj = userCompanies.find((c: any) => String(c.id) === selectedCompanyId) || null;
-
-      const userData = {
-        id: authResponse.user.id,
-        userName: authResponse.user.userName,
-        role: authResponse.user.role,
-        companies: userCompanies,
-        selectedCompany: selectedCompanyObj,
-        companyId: selectedCompanyObj?.id || undefined,
-        sessionId: authResponse.sessionId
-      };
-
-      const authPayload = {
-        token: `user-${authResponse.user.id}-${Date.now()}`,
-        user: userData
-      };
-
-      localStorage.setItem('authPayload', JSON.stringify(authPayload));
-      localStorage.setItem('selectedCompanyId', selectedCompanyId || '');
-      localStorage.setItem('sessionId', authResponse.sessionId || '');
-
-      login(authPayload.token, userData, authResponse.menuData);
-
-      const wasLoggedOut = sessionStorage.getItem('intentionalLogout') === 'true';
-      if (wasLoggedOut) sessionStorage.removeItem('intentionalLogout');
-      const from = wasLoggedOut ? '/' : ((location.state as any)?.from?.pathname || '/');
-      navigate(from, { replace: true });
-    }
-  } catch (err: any) {
-    console.error('❌ Force logout and login error:', err);
-    setError(err.response?.data?.message || 'Unable to login after force logout. Please try again.');
-  } finally {
-    setLoading(false);
-  }
-};
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -388,223 +91,591 @@ const handleForceLogoutAndLogin = async () => {
     if (name === 'userName' || name === 'password') {
       setError('');
       setUserValidation(null);
+      setSelectedCompanyId('');
+      setShowForceLogoutOption(false);
     }
   };
 
   const togglePasswordVisibility = () => {
-    setShowPassword(!showPassword);
+    setShowPassword((prev) => !prev);
   };
 
-  const isSubmitDisabled = useMemo(() => {
-    if (loading || validating || companyLoading) return true;
-    if (!credentials.userName || !credentials.password) return true;
-    if (!userValidation) return true;
-    if (userCompanies.length > 0 && !selectedCompanyId) return true;
-    return false;
-  }, [loading, validating, companyLoading, credentials.userName, credentials.password, userValidation, userCompanies, selectedCompanyId]);
+  const handleForgotPassword = () => {
+    toast.info('Please contact your system administrator to reset your credentials.');
+  };
 
-  const getButtonText = () => {
-    if (validating) return 'Validating...';
-    if (loading) return 'Signing in...';
-    return 'Sign In to Dashboard';
+  const executeLogin = async (companyIdToUse?: number) => {
+    setLoading(true);
+    setError('');
+    setShowForceLogoutOption(false);
+
+    // Cross-tab check: See if another company is already logged in
+    try {
+      const getConflictCompanyName = () => {
+        const existingAuthPayload = localStorage.getItem('authPayload');
+        if (existingAuthPayload) {
+          const parsed = JSON.parse(existingAuthPayload);
+          const existingUser = parsed.user;
+          const existingCompanyId = existingUser?.selectedCompany?.id || existingUser?.companyId;
+
+          if (existingCompanyId && Number(existingCompanyId) !== companyIdToUse) {
+            return existingUser?.selectedCompany?.name || 'another company';
+          }
+        }
+
+        const activeSessionsRaw = localStorage.getItem('active_sessions');
+        if (activeSessionsRaw) {
+          const activeSessions = JSON.parse(activeSessionsRaw);
+          const now = Date.now();
+          const otherActiveSession = Object.values(activeSessions).find(
+            (s: any) => Number(s.companyId) !== companyIdToUse && now - s.timestamp < 60000
+          ) as any;
+
+          if (otherActiveSession) {
+            return otherActiveSession.companyName;
+          }
+        }
+        return null;
+      };
+
+      const conflictName = getConflictCompanyName();
+      if (conflictName) {
+        setError(
+          `Access Denied: You are already logged in to "${conflictName}" in another tab. Only one company login is allowed at a time across all tabs. Please close other tabs or logout from "${conflictName}" first.`
+        );
+        setLoading(false);
+        return;
+      }
+    } catch (err) {
+      console.error('Error checking existing session:', err);
+    }
+
+    try {
+      console.log('🔐 Attempting login', { userName: credentials.userName, companyId: companyIdToUse });
+
+      const authResponse = await authService.login({
+        ...credentials,
+        companyId: companyIdToUse,
+      });
+
+      console.log('✅ Login response:', authResponse);
+
+      if (authResponse.success) {
+        const selectedCompanyObj =
+          userCompanies.find((c: any) => String(c.id) === String(companyIdToUse)) || null;
+
+        const userData = {
+          id: authResponse.user.id,
+          userName: authResponse.user.userName,
+          role: authResponse.user.role,
+          companies: userCompanies,
+          selectedCompany: selectedCompanyObj,
+          companyId: selectedCompanyObj?.id || undefined,
+          sessionId: authResponse.sessionId,
+        };
+
+        const authPayload = {
+          token: `user-${authResponse.user.id}-${Date.now()}`,
+          user: userData,
+        };
+
+        console.log('💾 Saving auth data to localStorage');
+        localStorage.setItem('authPayload', JSON.stringify(authPayload));
+        localStorage.setItem('selectedCompanyId', companyIdToUse ? String(companyIdToUse) : '');
+        localStorage.setItem('sessionId', authResponse.sessionId || '');
+
+        if (rememberMe) {
+          localStorage.setItem('savedUserName', credentials.userName);
+          localStorage.setItem('rememberMe', 'true');
+        } else {
+          localStorage.removeItem('savedUserName');
+          localStorage.setItem('rememberMe', 'false');
+        }
+
+        console.log('🚀 Calling AuthContext login');
+        login(authPayload.token, userData, authResponse.menuData);
+
+        console.log('📍 Navigating to dashboard');
+        const wasLoggedOut = sessionStorage.getItem('intentionalLogout') === 'true';
+        if (wasLoggedOut) sessionStorage.removeItem('intentionalLogout');
+        const from = wasLoggedOut ? '/' : ((location.state as any)?.from?.pathname || '/');
+        navigate(from, { replace: true });
+      } else {
+        setError('Authentication failed');
+      }
+    } catch (err: any) {
+      console.error('❌ Login error:', err);
+      const errorMessage = err.response?.data?.message || '';
+      if (errorMessage.includes('already logged in from another device')) {
+        console.log('🔄 User logged in from another device, showing force logout option');
+        setError('Your account is already logged in from another device. Do you want to logout from all other devices and login here?');
+        setShowForceLogoutOption(true);
+      } else {
+        setError(errorMessage || 'Unable to login at the moment. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForceLogoutAndLogin = async () => {
+    console.log('🔄 Force logout and login initiated');
+    setLoading(true);
+    setError('');
+    setShowForceLogoutOption(false);
+
+    const currentCompanyId = selectedCompanyId ? Number(selectedCompanyId) : undefined;
+
+    try {
+      console.log('📡 Calling force logout for user:', credentials.userName);
+      await authService.forceLogoutUser(credentials.userName);
+      console.log('✅ Force logout successful');
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      await executeLogin(currentCompanyId);
+    } catch (err: any) {
+      console.error('❌ Force logout and login error:', err);
+      setError(err.response?.data?.message || 'Unable to login after force logout. Please try again.');
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setShowForceLogoutOption(false);
+
+    if (!credentials.userName.trim() || !credentials.password) {
+      setError('Please enter both username and password.');
+      return;
+    }
+
+    // Step 1: Validate credentials if not already validated
+    let currentValidation = userValidation;
+    if (!currentValidation) {
+      setValidating(true);
+      try {
+        await dispatch(getAllCompanies({ fetchAll: true })).unwrap();
+        const validation = await authService.validateUser(credentials.userName, credentials.password);
+        setUserValidation(validation);
+        currentValidation = validation;
+
+        if (!validation.companies || validation.companies.length === 0) {
+          setError('No companies assigned to this user. Contact administrator.');
+          setValidating(false);
+          return;
+        }
+
+        // If only 1 company, auto-select and proceed directly
+        if (validation.companies.length === 1) {
+          const singleCompanyId = Number(validation.companies[0]);
+          setSelectedCompanyId(String(singleCompanyId));
+          setValidating(false);
+          await executeLogin(singleCompanyId);
+          return;
+        } else {
+          // Multiple companies: user needs to select
+          setValidating(false);
+          return;
+        }
+      } catch (err: any) {
+        setUserValidation(null);
+        setError(err.response?.data?.message || 'Invalid username or password');
+        setValidating(false);
+        return;
+      }
+    }
+
+    // Step 2: Ensure company is selected if user has multiple companies
+    const currentCompanyId = selectedCompanyId ? Number(selectedCompanyId) : undefined;
+    if (userCompanies.length > 0 && !selectedCompanyId) {
+      setError('Please select a company to continue');
+      return;
+    }
+
+    await executeLogin(currentCompanyId);
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
-      {/* Background Pattern */}
-      <div className="absolute inset-0 opacity-20">
-        <div
-          className="absolute inset-0"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%236366f1' fill-opacity='0.4'%3E%3Cpath d='M0 30h30v30H0V30zm30 0h30v30H30V30z'/%3E%3Cpath d='M0 0h30v30H0V0zm30 0h30v30H30V0z' fill-opacity='0.2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-          }}
-        />
-      </div>
+    <div className="relative w-full min-h-screen bg-[#e8f0f8] flex items-center justify-center p-4 sm:p-6 lg:p-8 overflow-hidden font-sans text-[#0b2a5c]">
+      {/* Background Radial Glow Circles */}
+      <div
+        className="absolute -left-[120px] -top-[120px] w-[560px] h-[560px] rounded-full pointer-events-none"
+        style={{
+          background: 'radial-gradient(circle, rgba(79, 160, 255, 0.3), transparent 70%)',
+        }}
+      />
+      <div
+        className="absolute -right-[100px] -bottom-[140px] w-[560px] h-[560px] rounded-full pointer-events-none"
+        style={{
+          background: 'radial-gradient(circle, rgba(241, 217, 160, 0.6), transparent 70%)',
+        }}
+      />
 
-      {/* Floating Elements */}
-      <div className="absolute top-20 left-16 text-indigo-200/30 transform rotate-12">
-        <Scissors className="w-16 h-16" />
-      </div>
-      <div className="absolute bottom-32 right-20 text-purple-200/30 transform -rotate-12">
-        <Layers className="w-20 h-20" />
-      </div>
-
-      {/* Main Content */}
-      <div className="relative z-10 min-h-screen flex items-center justify-center p-4">
-        <div className="w-full max-w-lg">
-          {/* Logo and Branding */}
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">TEXTiPRO</h1>
-            <p className="text-gray-600 text-base font-medium mb-4">Enterprise Resource Planning</p>
-            <div className="flex items-center justify-center space-x-2">
-              <div className="h-0.5 w-6 bg-gradient-to-r from-indigo-400 to-purple-400 rounded-full"></div>
-              <div className="h-0.5 w-8 bg-gradient-to-r from-purple-400 to-indigo-400 rounded-full"></div>
-              <div className="h-0.5 w-6 bg-gradient-to-r from-indigo-400 to-purple-400 rounded-full"></div>
+      {/* Main Bento Grid Container */}
+      <div className="relative flex flex-col lg:flex-row gap-4 w-full max-w-[1240px] lg:h-[760px] z-10">
+        {/* Left Column: Login Card */}
+        <div className="w-full lg:w-[440px] lg:flex-none bg-white rounded-[30px] p-8 sm:p-10 flex flex-col justify-between shadow-[0_24px_60px_rgba(11,42,92,0.12)] relative overflow-hidden">
+          <div>
+            {/* Logo */}
+            <div className="mb-3 -ml-2">
+              <img
+                src={mastexikLogo}
+                alt="Mastexik Innovations logo"
+                className="w-[190px] h-auto object-contain"
+              />
             </div>
-          </div>
 
-          {/* Login Card */}
-          <div className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl shadow-xl overflow-hidden">
-            {/* Card Header */}
-            <div className="bg-gradient-to-r from-indigo-500 to-purple-600 px-8 py-6">
-              <div className="text-center">
-                <h2 className="text-xl font-bold text-white mb-2">Welcome Back</h2>
-                <p className="text-indigo-100 text-sm">Please sign in to your account</p>
+            {/* Header */}
+            <h1
+              className="text-[32px] leading-[1.1] font-bold text-[#0b2a5c] mb-1.5 flex items-center gap-1.5"
+              style={{ fontFamily: "'Montserrat', sans-serif" }}
+            >
+              <span>Welcome back</span>
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#d9b36a] mt-1" />
+            </h1>
+            <p className="text-[#5a6f8c] text-[14px] mb-6">
+              Sign in to manage your textile operations.
+            </p>
+
+            {/* Error Message */}
+            {error && (
+              <div className="bg-red-50/90 border border-red-200 text-red-700 px-4 py-3 rounded-[14px] text-xs mb-4">
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <div className="font-medium">{error}</div>
+                    {showForceLogoutOption && (
+                      <div className="mt-2.5 pt-2 border-t border-red-200/60">
+                        <button
+                          type="button"
+                          onClick={handleForceLogoutAndLogin}
+                          disabled={loading}
+                          className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white py-1.5 px-3 rounded-lg text-xs font-medium transition-colors shadow-sm"
+                        >
+                          {loading ? 'Processing...' : 'Yes, logout everywhere and login here'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Form */}
-            <div className="px-8 py-8">
-              <div className="space-y-6">
-                {error && (
-                  <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-                    <div className="flex items-start">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3 flex-1">
-                        <p className="font-medium">Login Error</p>
-                        <p className="mt-1">{error}</p>
-                        {showForceLogoutOption && (
-                          <div className="mt-3 space-y-2">
-                            <p className="text-sm text-red-600">Do you want to logout from all devices and login here?</p>
-                            <button
-                              onClick={handleForceLogoutAndLogin}
-                              disabled={loading}
-                              className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white py-2 px-4 rounded text-sm font-medium transition-colors"
-                            >
-                              {loading ? 'Processing...' : 'Yes, logout everywhere and login here'}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Username Field */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-gray-700">
-                    Username
-                  </label>
-                  <div className="relative group">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <User className="h-5 w-5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
-                    </div>
-                    <input
-                      type="text"
-                      name="userName"
-                      value={credentials.userName}
-                      onChange={handleChange}
-                      className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all duration-200"
-                      placeholder="Enter your username"
-                      required
-                      disabled={validating}
-                    />
-                  </div>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Username Field */}
+              <div>
+                <label className="block text-[12px] font-semibold text-[#34496a] mb-[7px]">
+                  Username
+                </label>
+                <div className="flex items-center gap-3 h-[50px] px-4 border-[1.5px] border-[#e1e9f2] rounded-[14px] bg-[#f6f9fc] text-[#6b7f9a] focus-within:border-[#0e9a96] focus-within:bg-white focus-within:ring-4 focus-within:ring-[#0e9a96]/15 transition-all">
+                  <User className="w-[18px] h-[18px] shrink-0" strokeWidth={1.8} />
+                  <input
+                    id="userName"
+                    type="text"
+                    name="userName"
+                    value={credentials.userName}
+                    onChange={handleChange}
+                    placeholder="Enter your username"
+                    className="w-full bg-transparent border-0 outline-none text-[#0b2a5c] placeholder-[#8497b0] text-[15px]"
+                    required
+                    disabled={loading || validating}
+                  />
                 </div>
+              </div>
 
-                {/* Password Field */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-gray-700">Password</label>
-                  <div className="relative group">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Lock className="h-5 w-5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
-                    </div>
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      name="password"
-                      value={credentials.password}
-                      onChange={handleChange}
-                      className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all duration-200"
-                      placeholder="Enter your password"
-                      required
-                      disabled={validating}
-                    />
-                    <button
-                      type="button"
-                      onClick={togglePasswordVisibility}
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-indigo-600 transition-colors focus:outline-none"
-                      disabled={validating}
-                    >
-                      {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Validate Button */}
-                {credentials.userName && credentials.password && !userValidation && !validating && (
+              {/* Password Field */}
+              <div>
+                <label className="block text-[12px] font-semibold text-[#34496a] mb-[7px]">
+                  Password
+                </label>
+                <div className="flex items-center gap-3 h-[50px] px-4 border-[1.5px] border-[#e1e9f2] rounded-[14px] bg-[#f6f9fc] text-[#6b7f9a] focus-within:border-[#0e9a96] focus-within:bg-white focus-within:ring-4 focus-within:ring-[#0e9a96]/15 transition-all">
+                  <Lock className="w-[18px] h-[18px] shrink-0" strokeWidth={1.8} />
+                  <input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    name="password"
+                    value={credentials.password}
+                    onChange={handleChange}
+                    placeholder="Enter your password"
+                    className="w-full bg-transparent border-0 outline-none text-[#0b2a5c] placeholder-[#8497b0] text-[15px]"
+                    required
+                    disabled={loading || validating}
+                  />
                   <button
-                    onClick={handleValidate}
-                    className="w-full bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white py-3 px-4 rounded-lg font-semibold text-sm transition-all duration-200 transform hover:scale-[1.01] active:scale-[0.99] shadow-lg hover:shadow-xl"
+                    type="button"
+                    onClick={togglePasswordVisibility}
+                    className="text-[#8497b0] hover:text-[#0b2a5c] transition-colors focus:outline-none shrink-0"
+                    tabIndex={-1}
                   >
-                    Validate Credentials
+                    {showPassword ? (
+                      <EyeOff className="w-[18px] h-[18px]" strokeWidth={1.8} />
+                    ) : (
+                      <Eye className="w-[18px] h-[18px]" strokeWidth={1.8} />
+                    )}
                   </button>
-                )}
+                </div>
+              </div>
 
-                {/* Company Selector - Show only after successful validation */}
-                {userValidation && userCompanies.length > 0 && (
-                  <div className="space-y-2">
-                    <label className="block text-sm font-semibold text-gray-700">
-                      Company {validating && '(Loading...)'}
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={selectedCompanyId}
-                        onChange={(e) => setSelectedCompanyId(e.target.value)}
-                        className="appearance-none w-full pl-4 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all duration-200"
-                        disabled={validating}
-                      >
-                        <option value="">Select Company</option>
-                        {userCompanies.map((company: any) => (
-                          <option key={company.id} value={company.id}>
-                            {company.name}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown className="absolute inset-y-0 right-3 my-auto h-4 w-4 text-gray-400 pointer-events-none" />
-                    </div>
+              {/* Company Selector (shown when user is assigned multiple companies) */}
+              {userValidation && userCompanies.length > 1 && (
+                <div>
+                  <label className="block text-[12px] font-semibold text-[#34496a] mb-[7px]">
+                    Company {validating && '(Loading...)'}
+                  </label>
+                  <div className="flex items-center gap-3 h-[50px] px-4 border-[1.5px] border-[#e1e9f2] rounded-[14px] bg-[#f6f9fc] text-[#6b7f9a] focus-within:border-[#0e9a96] focus-within:bg-white focus-within:ring-4 focus-within:ring-[#0e9a96]/15 transition-all relative">
+                    <Layers className="w-[18px] h-[18px] shrink-0" strokeWidth={1.8} />
+                    <select
+                      value={selectedCompanyId}
+                      onChange={(e) => setSelectedCompanyId(e.target.value)}
+                      className="w-full bg-transparent border-0 outline-none text-[#0b2a5c] text-[15px] cursor-pointer appearance-none pr-6"
+                      disabled={validating || loading}
+                    >
+                      <option value="">Select Company</option>
+                      {userCompanies.map((company: any) => (
+                        <option key={company.id} value={company.id}>
+                          {company.name}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-4 h-4 text-[#8497b0] pointer-events-none absolute right-4" />
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* Login Button */}
+              {/* Remember me & Forgot password */}
+              <div className="flex items-center justify-between pt-1 pb-1 text-[13px]">
+                <label className="flex items-center gap-2 text-[#34496a] cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 accent-[#0b2f78] cursor-pointer"
+                  />
+                  <span>Remember me</span>
+                </label>
                 <button
-                  onClick={handleSubmit}
-                  type="submit"
-                  disabled={isSubmitDisabled}
-                  className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white py-3 px-4 rounded-lg font-semibold text-sm transition-all duration-200 transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed shadow-lg hover:shadow-xl disabled:hover:scale-100"
+                  type="button"
+                  onClick={handleForgotPassword}
+                  className="text-[#0b6f78] font-semibold hover:underline focus:outline-none"
                 >
-                  {validating || loading ? (
-                    <div className="flex items-center justify-center">
-                      <Loader2 className="animate-spin h-5 w-5 mr-2" />
-                      {getButtonText()}
-                    </div>
-                  ) : (
-                    <span className="flex items-center justify-center">
-                      Sign In to Dashboard
-                      <svg className="ml-2 h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
-                      </svg>
-                    </span>
-                  )}
+                  Forgot password?
                 </button>
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={loading || validating || companyLoading}
+                className="w-full h-[54px] rounded-[14px] cursor-pointer bg-gradient-to-r from-[#0b2f78] to-[#0e8f95] text-white font-semibold text-[15px] flex items-center justify-center gap-2.5 shadow-[0_14px_28px_rgba(11,47,120,0.28)] hover:brightness-105 active:scale-[0.99] transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {loading || validating ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>{validating ? 'Validating...' : 'Signing in...'}</span>
+                  </div>
+                ) : (
+                  <>
+                    <span>Sign in to Dashboard</span>
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M5 12h14M13 6l6 6-6 6" />
+                    </svg>
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+
+          {/* Powered by Footer */}
+          <div className="mt-6 pt-3 text-[12px] text-[#5a6f8c] text-center border-t border-gray-100/80">
+            Powered by <b className="text-[#0b2f78]">Mastexik Innovations</b> · © 2026
+          </div>
+        </div>
+
+        {/* Right Column: Bento Grid */}
+        <div className="flex-1 flex flex-col gap-4 min-w-0">
+          {/* Top Large Hero Tile */}
+          <div
+            className="rounded-[30px] relative overflow-hidden text-white p-8 sm:p-10 flex flex-col justify-end"
+            style={{
+              flex: '1.15',
+              background: 'linear-gradient(135deg, #061a47, #0b3a8c 60%, #0b8a92)',
+              minHeight: '280px',
+            }}
+          >
+            {/* Background SVG wave lines and accent nodes */}
+            <svg
+              className="absolute inset-0 w-full h-full pointer-events-none"
+              viewBox="0 0 800 340"
+              preserveAspectRatio="xMidYMid slice"
+              aria-hidden="true"
+            >
+              <path d="M-20 170 C140 40 260 300 430 150 S650 20 820 110" stroke="#9fe6ff" strokeOpacity="0.10" strokeWidth="1.2" fill="none" />
+              <path d="M-20 176 C140 44 260 303 430 155 S650 26 820 114" stroke="#9fe6ff" strokeOpacity="0.15" strokeWidth="1.2" fill="none" />
+              <path d="M-20 182 C140 48 260 306 430 160 S650 32 820 118" stroke="#9fe6ff" strokeOpacity="0.20" strokeWidth="1.2" fill="none" />
+              <path d="M-20 188 C140 52 260 309 430 165 S650 38 820 122" stroke="#9fe6ff" strokeOpacity="0.25" strokeWidth="1.2" fill="none" />
+              <path d="M-20 194 C140 56 260 312 430 170 S650 44 820 126" stroke="#9fe6ff" strokeOpacity="0.30" strokeWidth="1.2" fill="none" />
+              <path d="M-20 200 C140 60 260 315 430 175 S650 50 820 130" stroke="#9fe6ff" strokeOpacity="0.10" strokeWidth="1.2" fill="none" />
+              <path d="M-20 206 C140 64 260 318 430 180 S650 56 820 134" stroke="#9fe6ff" strokeOpacity="0.15" strokeWidth="1.2" fill="none" />
+              <path d="M-20 212 C140 68 260 321 430 185 S650 62 820 138" stroke="#9fe6ff" strokeOpacity="0.20" strokeWidth="1.2" fill="none" />
+              <path d="M-20 218 C140 72 260 324 430 190 S650 68 820 142" stroke="#9fe6ff" strokeOpacity="0.25" strokeWidth="1.2" fill="none" />
+              <path d="M-20 224 C140 76 260 327 430 195 S650 74 820 146" stroke="#9fe6ff" strokeOpacity="0.30" strokeWidth="1.2" fill="none" />
+              <path d="M-20 230 C140 80 260 330 430 200 S650 80 820 150" stroke="#9fe6ff" strokeOpacity="0.10" strokeWidth="1.2" fill="none" />
+              <path d="M-20 236 C140 84 260 333 430 205 S650 86 820 154" stroke="#9fe6ff" strokeOpacity="0.15" strokeWidth="1.2" fill="none" />
+              <path d="M-20 242 C140 88 260 336 430 210 S650 92 820 158" stroke="#9fe6ff" strokeOpacity="0.20" strokeWidth="1.2" fill="none" />
+              <path d="M-20 248 C140 92 260 339 430 215 S650 98 820 162" stroke="#9fe6ff" strokeOpacity="0.25" strokeWidth="1.2" fill="none" />
+              <path d="M-20 254 C140 96 260 342 430 220 S650 104 820 166" stroke="#9fe6ff" strokeOpacity="0.30" strokeWidth="1.2" fill="none" />
+              <path d="M-20 260 C140 100 260 345 430 225 S650 110 820 170" stroke="#9fe6ff" strokeOpacity="0.10" strokeWidth="1.2" fill="none" />
+              <path d="M-20 266 C140 104 260 348 430 230 S650 116 820 174" stroke="#9fe6ff" strokeOpacity="0.15" strokeWidth="1.2" fill="none" />
+              <path d="M-20 272 C140 108 260 351 430 235 S650 122 820 178" stroke="#9fe6ff" strokeOpacity="0.20" strokeWidth="1.2" fill="none" />
+              <path d="M-20 278 C140 112 260 354 430 240 S650 128 820 182" stroke="#9fe6ff" strokeOpacity="0.25" strokeWidth="1.2" fill="none" />
+              <path d="M-20 284 C140 116 260 357 430 245 S650 134 820 186" stroke="#9fe6ff" strokeOpacity="0.30" strokeWidth="1.2" fill="none" />
+              <path d="M-20 290 C140 120 260 360 430 250 S650 140 820 190" stroke="#9fe6ff" strokeOpacity="0.10" strokeWidth="1.2" fill="none" />
+              <path d="M-20 296 C140 124 260 363 430 255 S650 146 820 194" stroke="#9fe6ff" strokeOpacity="0.15" strokeWidth="1.2" fill="none" />
+              <path d="M-20 302 C140 128 260 366 430 260 S650 152 820 198" stroke="#9fe6ff" strokeOpacity="0.20" strokeWidth="1.2" fill="none" />
+              <path d="M-20 308 C140 132 260 369 430 265 S650 158 820 202" stroke="#9fe6ff" strokeOpacity="0.25" strokeWidth="1.2" fill="none" />
+              <path d="M-20 314 C140 136 260 372 430 270 S650 164 820 206" stroke="#9fe6ff" strokeOpacity="0.30" strokeWidth="1.2" fill="none" />
+              <path d="M-20 320 C140 140 260 375 430 275 S650 170 820 210" stroke="#9fe6ff" strokeOpacity="0.10" strokeWidth="1.2" fill="none" />
+              <path d="M-20 250 C150 90 280 360 450 210 S680 70 820 150" stroke="#e2c27d" strokeWidth="2.5" fill="none" />
+              <g stroke="#fff" strokeOpacity=".25" strokeWidth="1.5" fill="none">
+                <path d="M650 60 L700 10" />
+                <path d="M685 100 L735 50" />
+                <path d="M720 140 L770 90" />
+              </g>
+              <circle cx="700" cy="10" r="6" fill="#e2c27d" />
+              <circle cx="735" cy="50" r="6" fill="#19c4b4" />
+              <circle cx="770" cy="90" r="6" fill="#4a86e8" />
+            </svg>
+
+            {/* Hero Tile Text */}
+            <div className="relative z-10">
+              <div className="text-[12px] font-semibold tracking-[0.08em] uppercase text-[#f1d9a0] mb-2.5">
+                Textile ERP
+              </div>
+              <div
+                className="font-bold text-[30px] sm:text-[34px] leading-[1.15] max-w-[480px]"
+                style={{ fontFamily: "'Montserrat', sans-serif" }}
+              >
+                Your entire mill, <span className="text-[#f1d9a0]">at a glance.</span>
+              </div>
+              <div className="mt-2.5 text-[14px] text-[#cfe0f3] max-w-[440px]">
+                Orders, fabric stock and shipments, all in one beautiful dashboard.
               </div>
             </div>
           </div>
 
-          {/* Footer */}
-          <div className="text-center mt-6">
-            <div className="flex items-center justify-center space-x-2 text-gray-500 text-sm">
-              <span>Powered by</span>
-              <div className="flex items-center space-x-1">
-                <Scissors className="w-4 h-4 text-indigo-500" />
-                <span className="font-semibold text-gray-700">TEXTiPRO</span>
+          {/* Bottom 3 Stat Tiles */}
+          <div className="flex-1 flex flex-col sm:flex-row gap-4 min-h-0">
+            {/* Tile 1: Orders Today */}
+            <div className="flex-1 bg-white rounded-[30px] p-5 sm:p-6 flex flex-col justify-between shadow-[0_18px_40px_rgba(11,42,92,0.08)] relative overflow-hidden min-h-[160px]">
+              <div>
+                <div className="text-[12px] font-semibold tracking-[0.08em] uppercase text-[#5a6f8c]">
+                  Orders today
+                </div>
+                <div
+                  className="font-extrabold text-[36px] sm:text-[40px] leading-none mt-3 text-[#0b2a5c]"
+                  style={{ fontFamily: "'Montserrat', sans-serif" }}
+                >
+                  128
+                </div>
+                <div className="text-[13px] text-[#0b7f86] font-semibold mt-1.5">
+                  +12% vs yesterday
+                </div>
               </div>
-              <span>© 2024</span>
+              <svg className="w-full h-[55px] mt-2" viewBox="0 0 200 60" aria-hidden="true">
+                <path
+                  d="M0 48 L25 40 L50 44 L75 28 L100 34 L125 18 L150 24 L175 8 L200 12"
+                  fill="none"
+                  stroke="#0e9a96"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
             </div>
-            <p className="text-gray-400 text-xs mt-1">Streamlining textile operations worldwide</p>
+
+            {/* Tile 2: Fabric Stock */}
+            <div
+              className="flex-1 rounded-[30px] p-5 sm:p-6 flex flex-col justify-between text-white relative overflow-hidden min-h-[160px]"
+              style={{ background: 'linear-gradient(160deg, #0e9a96, #0b6f86)' }}
+            >
+              <div>
+                <div className="text-[12px] font-semibold tracking-[0.08em] uppercase text-[#d6f5f1]">
+                  Fabric stock
+                </div>
+                <div
+                  className="font-extrabold text-[36px] sm:text-[40px] leading-none mt-3"
+                  style={{ fontFamily: "'Montserrat', sans-serif" }}
+                >
+                  24.6k<span className="text-[16px] font-semibold"> m</span>
+                </div>
+                <div className="text-[13px] text-[#d6f5f1] mt-1.5">
+                  Across 12 categories
+                </div>
+              </div>
+              <div className="flex items-end gap-[7px] h-[55px] mt-2">
+                <div className="flex-1 h-[40%] rounded-[6px] bg-white/35" />
+                <div className="flex-1 h-[62%] rounded-[6px] bg-white/45" />
+                <div className="flex-1 h-[48%] rounded-[6px] bg-white/40" />
+                <div className="flex-1 h-[80%] rounded-[6px] bg-white/60" />
+                <div className="flex-1 h-[66%] rounded-[6px] bg-white/50" />
+                <div className="flex-1 h-[94%] rounded-[6px] bg-white/90" />
+              </div>
+            </div>
+
+            {/* Tile 3: On-time Shipments */}
+            <div
+              className="flex-1 rounded-[30px] p-5 sm:p-6 flex flex-col justify-between items-start relative overflow-hidden min-h-[160px]"
+              style={{ background: 'linear-gradient(160deg, #fff7e2, #f3dfa8)' }}
+            >
+              <div className="text-[12px] font-semibold tracking-[0.08em] uppercase text-[#6b5a2e]">
+                On-time shipments
+              </div>
+              <div className="my-auto py-1 flex items-center gap-4">
+                <svg width="80" height="80" viewBox="0 0 100 100" aria-hidden="true">
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="40"
+                    fill="none"
+                    stroke="rgba(11,42,92,0.12)"
+                    strokeWidth="11"
+                  />
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="40"
+                    fill="none"
+                    stroke="#0b2f78"
+                    strokeWidth="11"
+                    strokeLinecap="round"
+                    strokeDasharray="246 252"
+                    transform="rotate(-90 50 50)"
+                  />
+                </svg>
+                <div
+                  className="font-extrabold text-[36px] sm:text-[40px] leading-none text-[#0b2f78]"
+                  style={{ fontFamily: "'Montserrat', sans-serif" }}
+                >
+                  98%
+                </div>
+              </div>
+              <div className="text-[13px] text-[#6b5a2e] font-semibold">
+                Sample figures shown
+              </div>
+            </div>
           </div>
         </div>
       </div>

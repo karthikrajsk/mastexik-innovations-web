@@ -32,6 +32,10 @@ export function Header({ mobileOpen = false, onMobileToggle }: HeaderProps) {
   const pageTitle = title && !hideTitle ? title : 'Textile Operations';
   const section = getSectionLabel(location.pathname);
 
+  if (location.pathname === '/' || location.pathname.toLowerCase() === '/dashboard' || hideTitle) {
+    return null;
+  }
+
   return (
     <header className="fixed top-3 right-3 left-3 lg:left-[240px] z-30 h-[112px] sm:h-[120px] lg:h-[124px] overflow-visible text-white">
       <div className="relative h-full overflow-hidden rounded-2xl bg-[#082A59] shadow-[0_10px_26px_rgba(6,30,65,0.16)]">

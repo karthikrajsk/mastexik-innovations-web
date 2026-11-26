@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback, useId } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Download, ChevronDown, ChevronUp, Edit, Trash, Eye, Plus, Filter, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Copy, Printer } from 'lucide-react';
-import { exportToExcel, exportToPdf } from '@/lib/utils';
+import { Search, Download, ChevronDown, ChevronUp, Edit, Trash, Eye, Plus, Filter, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Copy, Printer, LayoutGrid, List } from 'lucide-react';
+import { exportToExcel, exportToPdf, cn } from '@/lib/utils';
 import { useSelector, useDispatch } from 'react-redux';
 // @ts-ignore
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -106,6 +106,11 @@ interface DataTableProps {
   cellContentClassName?: string;
   emptyMessage?: string;
   tableClassName?: string;
+  defaultViewMode?: 'table' | 'cards';
+  viewMode?: 'table' | 'cards';
+  onViewModeChange?: (mode: 'table' | 'cards') => void;
+  showViewToggle?: boolean;
+  renderCard?: (props: { row: any; index: number; columns: any[]; actions: React.ReactNode }) => React.ReactNode;
 }
 
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 30, 50, 100];
@@ -572,6 +577,11 @@ export function DataTable({
   cellContentClassName,
   emptyMessage,
   tableClassName,
+  defaultViewMode = 'table',
+  viewMode: controlledViewMode,
+  onViewModeChange,
+  showViewToggle = true,
+  renderCard,
 }: DataTableProps) {
   const location = useLocation();
   const path = location.pathname;
@@ -761,6 +771,22 @@ export function DataTable({
       return stored ? (JSON.parse(stored).pageSize ?? initialPageSize) : initialPageSize;
     } catch { return initialPageSize; }
   });
+  const [internalViewMode, setInternalViewMode] = useState<'table' | 'cards'>(() => {
+    if (!_dtAppSessionActive) return defaultViewMode;
+    try {
+      const stored = sessionStorage.getItem(`dt-filters:${location.pathname}`);
+      return stored ? (JSON.parse(stored).viewMode ?? defaultViewMode) : defaultViewMode;
+    } catch { return defaultViewMode; }
+  });
+  const viewMode = controlledViewMode ?? internalViewMode;
+
+  const setViewMode = useCallback((mode: 'table' | 'cards') => {
+    if (onViewModeChange) {
+      onViewModeChange(mode);
+    } else {
+      setInternalViewMode(mode);
+    }
+  }, [onViewModeChange]);
   const [showFilters, setShowFilters] = useState<boolean>(() => {
     if (!_dtAppSessionActive) return false;
     try {
@@ -793,9 +819,10 @@ export function DataTable({
         columnFilters: internalColumnFilters,
         showFilters,
         pageSize,
+        viewMode,
       }));
     } catch {}
-  }, [storageKey, filterInput, internalColumnFilters, showFilters, pageSize, showToolbar]);
+  }, [storageKey, filterInput, internalColumnFilters, showFilters, pageSize, viewMode, showToolbar]);
 
   const initialPageSizeRef = useRef(initialPageSize);
   useEffect(() => {
@@ -2277,6 +2304,826 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
     && !routeHero.isCompact
     && showToolbar;
 
+  const formatCellValue = useCallback((column: any, row: any, index: number) => {
+    let cellValue = typeof column.accessor === 'function' 
+      ? column.accessor(row) 
+      : (row[column.accessor] !== undefined ? row[column.accessor] : row[column.accessorKey]);
+
+    // Recompute Serial Number for filtered dataset consistency
+    if (column.accessor === 'serialNo' || column.Header === 'S.No' || column.id === 'serialNo') {
+      cellValue = externalOffset + (virtualScroll ? index : (currentPage - firstPage) * pageSize + index) + 1;
+    }
+
+    // Format decimals if the column contains quantity, meter, mtr, or amount
+    if (!disableAutoFormatting && isNumericFormattedColumn(column.Header, column.accessor ?? column.accessorKey)) {
+      if (cellValue != null && cellValue !== '') {
+        const num = Number(cellValue);
+        if (!isNaN(num)) {
+          cellValue = Math.round(num * 100) / 100;
+        }
+      }
+    }
+
+    // Format Fabric Code if needed
+    const headerStr = typeof column.Header === 'string' ? column.Header : '';
+    const accessorStr = typeof column.accessor === 'string' ? column.accessor : (column.accessorKey || '');
+    const isFabricCodeCol = headerStr.toLowerCase().includes('fabric code') || 
+                            headerStr.toLowerCase().includes('fabriccode') ||
+                            headerStr.toLowerCase().includes('sortno') ||
+                            headerStr.toLowerCase().includes('sort no') ||
+                            accessorStr.toLowerCase().includes('fabriccode') ||
+                            accessorStr.toLowerCase().includes('fabricmasterid') ||
+                            accessorStr.toLowerCase().includes('fabriccodeid') ||
+                            accessorStr.toLowerCase().includes('fabricid');
+    const isSizing = typeof title === 'string' && title.toLowerCase().includes('sizing');
+    const isFabricQualityCol = headerStr.toLowerCase().includes('fabric quality') || 
+                               headerStr.toLowerCase().includes('fabricquality') ||
+                               accessorStr.toLowerCase().includes('fabricquality') ||
+                               accessorStr.toLowerCase().includes('fabric_quality');
+
+    const shouldFormatFabric = isFabricCodeCol || (isSizing && isFabricQualityCol);
+
+    if (!disableAutoFormatting && shouldFormatFabric && (!hasBothFabricColumns || (isSizing && isFabricQualityCol))) {
+      const isFormatted = typeof cellValue === 'string' && cellValue.includes(' - ');
+      if (!isFormatted) {
+        const fabricId = row.fabricMasterId ?? row.fabricCodeId ?? row.fabricId ?? cellValue;
+        if (fabricId != null && fabricId !== '') {
+          let fabric = [...fabricMasterFullList, ...fabricMasterList].find(f => 
+            f.id !== undefined && String(f.id) === String(fabricId)
+          );
+          if (!fabric && typeof fabricId === 'string') {
+            fabric = [...fabricMasterFullList, ...fabricMasterList].find(f => 
+              f.fabricCode !== undefined && String(f.fabricCode).toLowerCase() === fabricId.toLowerCase()
+            );
+          }
+          if (fabric) {
+            const code = fabric.fabricCode || fabric.fabric_code || fabric.code || '';
+            const quality = fabric.fabricQuality || fabric.quality || fabric.fabric_quality || '';
+            if (code || quality) {
+              cellValue = code && quality ? `${code} - ${quality}` : (code || quality);
+            }
+          }
+        }
+      }
+    }
+
+    if (column.Cell && typeof column.Cell === 'function') {
+      try {
+        return column.Cell({
+          value: cellValue,
+          row: { original: row, index: externalOffset + (virtualScroll ? index : (currentPage - firstPage) * pageSize + index) }
+        });
+      } catch (e) {
+        return cellValue;
+      }
+    }
+
+    return cellValue;
+  }, [
+    externalOffset,
+    virtualScroll,
+    currentPage,
+    firstPage,
+    pageSize,
+    disableAutoFormatting,
+    title,
+    hasBothFabricColumns,
+    fabricMasterFullList,
+    fabricMasterList,
+  ]);
+
+  const renderRowActions = useCallback((row: any) => {
+    const customActions = renderActions ? renderActions(row) : null;
+    if (customActions) return customActions;
+    return (!canShowActions || canShowActions(row)) && (
+      <div className="flex items-center justify-center gap-1.5" onClick={e => e.stopPropagation()}>
+        {onView && canView && (
+          <button
+            onClick={() => onView(row)}
+            className="rounded-md border border-[var(--primary-200)] bg-[var(--primary-50)] p-1.5 text-[var(--primary)] transition hover:border-[var(--primary-500)]"
+            title="View"
+          >
+            <Eye className="h-4 w-4" />
+          </button>
+        )}
+        {onEdit && canEdit && (
+          <button
+            onClick={() => onEdit(row)}
+            className="rounded-lg border border-amber-100 bg-amber-50/60 p-1.5 text-amber-600 transition hover:border-amber-200"
+            title="Edit"
+          >
+            <Edit className="h-4 w-4" />
+          </button>
+        )}
+        {onPrint && canPrintPermission && (
+          <button
+            onClick={() => onPrint(row)}
+            className="rounded-lg border border-[#CBE7E5] bg-[#E9F4F4] p-1.5 text-[#007F7C] transition hover:border-[#93D0CD]"
+            title="Print"
+          >
+            <Printer className="h-4 w-4" />
+          </button>
+        )}
+        {onClone && canAdd && (
+          <button
+            onClick={() => onClone(row)}
+            className="rounded-lg border border-purple-100 bg-purple-50/60 p-1.5 text-purple-600 transition hover:border-purple-200"
+            title="Clone"
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+        )}
+        {onDelete && !hideDeleteAction && canDelete && (
+          <button
+            onClick={() => onDelete(row)}
+            className="rounded-lg border border-rose-100 bg-rose-50/70 p-1.5 text-rose-600 transition hover:border-rose-200"
+            title="Delete"
+          >
+            <Trash className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+    );
+  }, [
+    renderActions,
+    canShowActions,
+    onView,
+    canView,
+    onEdit,
+    canEdit,
+    onPrint,
+    canPrintPermission,
+    onClone,
+    canAdd,
+    onDelete,
+    hideDeleteAction,
+    canDelete,
+  ]);
+
+  const isSerialCol = useCallback((col: any) => {
+    if (!col) return false;
+    if (col.accessor === 'serialNo' || col.id === 'serialNo' || col.accessorKey === 'serialNo') return true;
+    if (typeof col.Header === 'string') {
+      const h = col.Header.toLowerCase().trim();
+      return ['s.no', 'sl no', 'sno', 'sl.no', 's no', '#'].includes(h);
+    }
+    return false;
+  }, []);
+
+  const isActionCol = useCallback((col: any) => {
+    if (!col) return false;
+    if (col.id === 'actions' || col.accessorKey === 'actions') return true;
+    if (typeof col.Header === 'string') {
+      return col.Header.toLowerCase().trim() === 'actions';
+    }
+    return false;
+  }, []);
+
+  const isSelectCol = useCallback((col: any) => {
+    if (!col) return false;
+    return col.id === 'select' || col.accessorKey === 'select';
+  }, []);
+
+  const isStatusCol = useCallback((col: any) => {
+    if (!col) return false;
+    const h = typeof col.Header === 'string' ? col.Header.toLowerCase() : '';
+    const a = typeof col.accessor === 'string' ? col.accessor.toLowerCase() : (col.accessorKey || '').toLowerCase();
+    return h.includes('status') || a.includes('status') || a.includes('activeflag') || a.includes('isactive');
+  }, []);
+
+  const isOrderStatusCol = useCallback((col: any) => {
+    if (!col) return false;
+    const h = typeof col.Header === 'string' ? col.Header.toLowerCase() : '';
+    const a = typeof col.accessor === 'string' ? col.accessor.toLowerCase() : (col.accessorKey || '').toLowerCase();
+    return (
+      h.includes('order status') ||
+      h.includes('order_status') ||
+      h.includes('orderstatus') ||
+      a.includes('order_status') ||
+      a.includes('orderstatus') ||
+      a.includes('iscomplete')
+    );
+  }, []);
+
+  const isFilesCol = useCallback((col: any) => {
+    if (!col) return false;
+    const h = typeof col.Header === 'string' ? col.Header.toLowerCase() : '';
+    const a = typeof col.accessor === 'string' ? col.accessor.toLowerCase() : (col.accessorKey || '').toLowerCase();
+    return h.includes('file') || h.includes('attachment') || a.includes('file') || a.includes('attachment');
+  }, []);
+
+  const isPrintCol = useCallback((col: any) => {
+    if (!col) return false;
+    const h = typeof col.Header === 'string' ? col.Header.toLowerCase() : '';
+    const a = typeof col.accessor === 'string' ? col.accessor.toLowerCase() : (col.accessorKey || '').toLowerCase();
+    return h === 'print' || a === 'print';
+  }, []);
+
+  const extractTextContent = useCallback((node: any): string => {
+    if (node == null || typeof node === 'boolean') return '';
+    if (typeof node === 'string' || typeof node === 'number') return String(node).trim();
+    if (React.isValidElement(node)) {
+      const props = node.props as any;
+      if (!props) return '';
+      if (typeof props.children === 'string' || typeof props.children === 'number') {
+        return String(props.children).trim();
+      }
+      if (Array.isArray(props.children)) {
+        return props.children.map(extractTextContent).filter(Boolean).join(' ').trim();
+      }
+      if (React.isValidElement(props.children)) {
+        return extractTextContent(props.children);
+      }
+      if (props.value != null && (typeof props.value === 'string' || typeof props.value === 'number')) {
+        return String(props.value).trim();
+      }
+    }
+    if (typeof node === 'object') {
+      if (typeof node.label === 'string') return node.label.trim();
+      if (typeof node.name === 'string') return node.name.trim();
+      if (typeof node.value === 'string' || typeof node.value === 'number') return String(node.value).trim();
+    }
+    return '';
+  }, []);
+
+  const isValueEmpty = useCallback((node: any): boolean => {
+    if (node == null) return true;
+    if (typeof node === 'string') {
+      const trimmed = node.trim();
+      return trimmed === '' || trimmed === '-' || trimmed === '—' || trimmed === 'null' || trimmed === 'undefined';
+    }
+    if (typeof node === 'number') return isNaN(node);
+    if (React.isValidElement(node)) {
+      const text = extractTextContent(node);
+      return text === '' || text === '-' || text === '—';
+    }
+    return false;
+  }, [extractTextContent]);
+
+  const getCardInitials = useCallback((text: any): string => {
+    const raw = extractTextContent(text).replace(/[^a-zA-Z0-9\s]/g, ' ').trim();
+    if (!raw) return 'HF';
+    const words = raw.split(/\s+/).filter(Boolean);
+    if (words.length >= 2) {
+      return (words[0][0] + words[1][0]).toUpperCase();
+    }
+    if (words.length === 1 && words[0].length >= 2) {
+      return words[0].slice(0, 2).toUpperCase();
+    }
+    if (words.length === 1 && words[0].length === 1) {
+      return words[0][0].toUpperCase();
+    }
+    return 'HF';
+  }, [extractTextContent]);
+
+  const renderCardStatusBadge = useCallback((rawVal: any, row: any) => {
+    let text = 'Active';
+    if (rawVal != null) {
+      const extracted = extractTextContent(rawVal);
+      if (extracted) {
+        text = extracted;
+      } else if (typeof rawVal === 'string' || typeof rawVal === 'number') {
+        text = String(rawVal).trim();
+      } else if (typeof rawVal === 'boolean') {
+        text = rawVal ? 'Active' : 'Inactive';
+      }
+    } else if (row) {
+      if (row.status != null) text = String(row.status).trim();
+      else if (row.statusLabel != null) text = String(row.statusLabel).trim();
+      else if (row.isActive != null) text = row.isActive ? 'Active' : 'Inactive';
+      else if (row.activeFlag != null) text = (row.activeFlag === 'Y' || row.activeFlag === 1 || row.activeFlag === true) ? 'Active' : 'Inactive';
+      else if (row.activeflag != null) text = (row.activeflag === 'Y' || row.activeflag === 1) ? 'Active' : 'Inactive';
+    }
+
+    const lower = text.toLowerCase();
+    const isApproved = lower.includes('approved') || lower.includes('active') || lower.includes('complete') || lower === 'y' || lower === '1';
+    const isPending = lower.includes('pending') || lower.includes('draft') || lower.includes('wait') || lower.includes('process');
+    const isRejected = lower.includes('inactive') || lower.includes('reject') || lower.includes('cancel') || lower === 'n' || lower === '0';
+
+    let pillClass = 'bg-sky-50 text-sky-700 border-sky-200/80';
+    let dotClass = 'bg-sky-500';
+
+    if (isApproved) {
+      pillClass = 'bg-emerald-50 text-emerald-700 border-emerald-200/90';
+      dotClass = 'bg-emerald-500';
+    } else if (isPending) {
+      pillClass = 'bg-amber-50 text-amber-700 border-amber-200/90';
+      dotClass = 'bg-amber-500';
+    } else if (isRejected) {
+      pillClass = 'bg-rose-50 text-rose-700 border-rose-200/90';
+      dotClass = 'bg-rose-500';
+    }
+
+    return (
+      <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border shadow-2xs select-none', pillClass)}>
+        <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', dotClass)} />
+        <span className="capitalize">{text}</span>
+      </span>
+    );
+  }, [extractTextContent]);
+
+  const renderOrderStatusButton = useCallback((orderStatusNode: any, row: any) => {
+    if (!orderStatusNode) return null;
+
+    if (React.isValidElement(orderStatusNode)) {
+      const props = orderStatusNode.props as any;
+      const buttonText = extractTextContent(orderStatusNode) || 'Complete';
+      const onClick = props?.onClick;
+
+      return (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onClick) onClick(e);
+          }}
+          className="rounded-full border border-[#CCA651] bg-[#CCA651]/10 px-3.5 py-1 text-xs font-semibold text-[#8C6D23] transition hover:bg-[#CCA651]/20 hover:border-[#B8923F] cursor-pointer shadow-2xs active:scale-95"
+        >
+          {buttonText}
+        </button>
+      );
+    }
+
+    const text = String(orderStatusNode).trim();
+    if (!text || text === '-' || text === '—') return null;
+
+    return (
+      <span className="rounded-full border border-[#CCA651] bg-[#CCA651]/10 px-3.5 py-1 text-xs font-semibold text-[#8C6D23]">
+        {text}
+      </span>
+    );
+  }, [extractTextContent]);
+
+  const cardColumnsConfig = useMemo(() => {
+    const serialCol = enhancedColumns.find(isSerialCol);
+    const statusCol = enhancedColumns.find(isStatusCol);
+    const orderStatusCol = enhancedColumns.find(isOrderStatusCol);
+    const filesCol = enhancedColumns.find(isFilesCol);
+    const printCol = enhancedColumns.find(isPrintCol);
+
+    const contentCols = enhancedColumns.filter(c =>
+      !isSerialCol(c) && !isActionCol(c) && !isSelectCol(c)
+    );
+
+    const colMatch = (c: any, keywords: string[]) => {
+      if (!c) return false;
+      const h = typeof c.Header === 'string' ? c.Header.toLowerCase() : '';
+      const a = typeof c.accessor === 'string' ? c.accessor.toLowerCase() : (c.accessorKey || '').toLowerCase();
+      const id = (c.id || '').toLowerCase();
+      return keywords.some(k => h.includes(k) || a.includes(k) || id.includes(k));
+    };
+
+    const dataCols = contentCols.filter(c =>
+      c !== orderStatusCol && c !== filesCol && c !== printCol && !isStatusCol(c)
+    );
+
+    // 1. Primary Title: Contract No, PO No, Doc No, Order No, Code, Name
+    const titleCol = dataCols.find(c => colMatch(c, [
+      'contractno', 'contract no', 'weavingcontractno',
+      'docno', 'doc no', 'documentno', 'document no',
+      'pono', 'po no', 'orderno', 'order no',
+      'invoiceno', 'invoice no', 'dcno', 'dc no',
+      'rollno', 'roll no', 'refno', 'ref no',
+      'code', 'number', 'terms'
+    ])) || dataCols.find(c => !isDateColumn(c) && colMatch(c, ['name', 'title'])) || dataCols.find(c => !isDateColumn(c)) || dataCols[0];
+
+    // 2. Date column (for subtitle under title)
+    const dateCol = dataCols.find(c => c !== titleCol && (isDateColumn(c) || colMatch(c, ['date', 'time', 'created', 'dt'])));
+
+    // 3. Entity column: Vendor, Supplier, Buyer, Customer, Party, Mill
+    const entityCol = dataCols.find(c =>
+      c !== titleCol && c !== dateCol &&
+      colMatch(c, ['vendor', 'supplier', 'buyer', 'customer', 'party', 'mill', 'company', 'client', 'agency'])
+    );
+
+    // 4. Remaining other columns for attributes and inset box
+    const otherCols = dataCols.filter(c => c !== titleCol && c !== dateCol && c !== entityCol);
+
+    return {
+      serialCol,
+      statusCol,
+      orderStatusCol,
+      filesCol,
+      printCol,
+      titleCol,
+      dateCol,
+      entityCol,
+      otherCols,
+    };
+  }, [enhancedColumns, isSerialCol, isActionCol, isSelectCol, isStatusCol, isOrderStatusCol, isFilesCol, isPrintCol]);
+
+  const renderCardsView = () => {
+    if (loading) {
+      return (
+        <div className="flex justify-center items-center py-20 rounded-xl bg-white border border-slate-200 shadow-xs">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#008F8C]"></div>
+          <span className="ml-3 text-slate-500 font-medium text-sm">Loading records...</span>
+        </div>
+      );
+    }
+
+    if (paginatedData.length === 0) {
+      return (
+        <div className="bg-white rounded-xl border border-slate-200 px-6 py-16 text-center shadow-xs">
+          <div className="mx-auto flex max-w-md flex-col items-center gap-3">
+            <div className="rounded-full bg-slate-100 p-4 text-slate-400">
+              <Search className="h-8 w-8" />
+            </div>
+            <p className="text-base font-semibold text-slate-700">
+              {emptyMessage || (hasActiveFilters ? 'No records match the current filters' : 'No records available yet')}
+            </p>
+            {hasActiveFilters && (
+              <button
+                onClick={clearAllFilters}
+                className="text-sm font-medium text-[var(--primary)] underline-offset-4 hover:underline"
+              >
+                Clear filters to view everything
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const {
+      serialCol,
+      statusCol,
+      orderStatusCol,
+      filesCol,
+      printCol,
+      titleCol,
+      dateCol,
+      entityCol,
+      otherCols,
+    } = cardColumnsConfig;
+
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-5 gap-3.5 pb-2">
+        {paginatedData.map((row: any, mapIdx: number) => {
+          const index = (currentPage - firstPage) * pageSize + mapIdx;
+          const rowId = getRowId ? getRowId(row) : (row.id !== undefined ? `row-${row.id}` : undefined);
+          const key = rowId ? `${rowId}-${index}` : (row?.pieceNo ? `row-${row.pieceNo}-${index}` : mapIdx);
+          const details = renderRowDetails ? renderRowDetails(row) : null;
+          const isHighlighted = highlightRowId != null && row.id === highlightRowId;
+          const actionsNode = showActions ? renderRowActions(row) : null;
+
+          if (renderCard) {
+            return (
+              <React.Fragment key={key}>
+                {renderCard({ row, index, columns: enhancedColumns, actions: actionsNode })}
+              </React.Fragment>
+            );
+          }
+
+          const serialValue = serialCol
+            ? formatCellValue(serialCol, row, mapIdx)
+            : externalOffset + index + 1;
+
+          // 1. Title / Code
+          const rawTitleVal = titleCol ? formatCellValue(titleCol, row, mapIdx) : null;
+          const titleText = extractTextContent(rawTitleVal) || row.weavingContractNo || row.poNo || row.orderNo || row.docNo || row.code || row.name || `Record #${serialValue}`;
+
+          // 2. Subtitle / Date (only if date data exists)
+          let subtitleLabel = dateCol && typeof dateCol.Header === 'string' ? dateCol.Header : 'Date';
+          let subtitleNode: React.ReactNode = null;
+          if (dateCol) {
+            const rawDate = formatCellValue(dateCol, row, mapIdx);
+            if (!isValueEmpty(rawDate)) {
+              subtitleNode = rawDate;
+            }
+          } else if (row.contractDate || row.poDate || row.date || row.createdAt || row.created_at) {
+            subtitleLabel = 'Date';
+            const d = parseDateString(row.contractDate || row.poDate || row.date || row.createdAt || row.created_at);
+            if (d) {
+              subtitleNode = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+            }
+          }
+
+          // 3. Status Badge (only if status data exists)
+          const rawStatusVal = statusCol ? formatCellValue(statusCol, row, mapIdx) : null;
+          const statusBadgeNode = !isValueEmpty(rawStatusVal) || row.statusLabel != null || row.activeFlag != null || row.isActive != null || row.status != null
+            ? renderCardStatusBadge(rawStatusVal, row)
+            : null;
+
+          // 4. Entity / Vendor / Supplier (only if entity data exists)
+          let entityNode: React.ReactNode = null;
+          let entityText = '';
+          const entityRole = entityCol && typeof entityCol.Header === 'string' ? entityCol.Header : 'Vendor';
+
+          if (entityCol) {
+            const rawEnt = formatCellValue(entityCol, row, mapIdx);
+            if (!isValueEmpty(rawEnt)) {
+              entityNode = rawEnt;
+              entityText = extractTextContent(rawEnt);
+            }
+          }
+          if (!entityText && (row.vendorName || row.supplierName || row.partyName || row.buyerName || row.customerName || row.millName)) {
+            entityText = String(row.vendorName || row.supplierName || row.partyName || row.buyerName || row.customerName || row.millName);
+            entityNode = entityText;
+          }
+          const hasEntity = !isValueEmpty(entityNode) && entityText.trim().length > 0;
+          const avatarInitials = hasEntity ? getCardInitials(entityText) : '';
+
+          // 5. Dynamic other data columns (attributes & inset box) - ONLY show non-empty fields!
+          const validOtherCols = otherCols.map(col => {
+            const val = formatCellValue(col, row, mapIdx);
+            return {
+              col,
+              label: typeof col.Header === 'string' ? col.Header : (col.id || col.accessorKey || ''),
+              val,
+              isEmpty: isValueEmpty(val),
+            };
+          }).filter(item => !item.isEmpty);
+
+          let gridItems: typeof validOtherCols = [];
+          let insetItems: typeof validOtherCols = [];
+
+          if (validOtherCols.length >= 4) {
+            gridItems = validOtherCols.slice(0, 2);
+            insetItems = validOtherCols.slice(2, 4);
+          } else if (validOtherCols.length === 3) {
+            gridItems = validOtherCols.slice(0, 1);
+            insetItems = validOtherCols.slice(1, 3);
+          } else if (validOtherCols.length === 2) {
+            insetItems = validOtherCols.slice(0, 2);
+          } else if (validOtherCols.length === 1) {
+            insetItems = validOtherCols.slice(0, 1);
+          }
+          const extraItems = validOtherCols.length > 4 ? validOtherCols.slice(4) : [];
+
+          // 6. Files & Print (only if columns exist and have non-empty values)
+          const rawFilesVal = filesCol ? formatCellValue(filesCol, row, mapIdx) : null;
+          const hasFiles = filesCol && !isValueEmpty(rawFilesVal);
+
+          const rawPrintVal = printCol ? formatCellValue(printCol, row, mapIdx) : null;
+          const hasPrint = printCol && !isValueEmpty(rawPrintVal);
+
+          // 7. Order Status / Complete Button (only if order status column exists in table!)
+          const rawOrderStatusVal = orderStatusCol ? formatCellValue(orderStatusCol, row, mapIdx) : null;
+          const hasOrderStatus = orderStatusCol && !isValueEmpty(rawOrderStatusVal);
+
+          return (
+            <div
+              key={key}
+              id={rowId}
+              data-record-row
+              onClick={() => onRowClick?.(row)}
+              onDoubleClick={() => onRowDoubleClick?.(row)}
+              className={cn(
+                'group relative flex flex-col justify-between rounded-2xl border border-slate-200/90 bg-white/70 backdrop-blur-md p-4 shadow-[0_4px_16px_rgba(15,23,42,0.06)] hover:border-[#CCA651]/70 hover:bg-white/90 hover:shadow-[0_12px_28px_rgba(15,23,42,0.12)] transition-all duration-200 text-slate-800 overflow-hidden',
+                isHighlighted && 'ring-2 ring-[#008F8C] border-[#008F8C]',
+                onRowClick && 'cursor-pointer'
+              )}
+            >
+              {/* Top Gradient Gold Border Accent */}
+              <div className="absolute top-0 left-0 right-0 h-[2.5px] bg-gradient-to-r from-[#CCA651] via-[#EBD694] to-transparent pointer-events-none" />
+
+              <div>
+                {/* Top Header: ID/Code + Subtitle & Status Pill */}
+                <div className="flex items-start justify-between gap-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div
+                      className="font-serif font-bold text-[#082A59] text-[15px] md:text-[16px] leading-tight break-words tracking-tight group-hover:text-[#008F8C] transition-colors"
+                      title={titleText}
+                    >
+                      {isValueEmpty(rawTitleVal) ? titleText : rawTitleVal}
+                    </div>
+                    {subtitleNode != null && (
+                      <div className="text-[11px] text-slate-500 mt-1 font-normal flex items-center gap-1 truncate">
+                        <span>{subtitleLabel}:</span>
+                        <span className="truncate">{subtitleNode}</span>
+                      </div>
+                    )}
+                  </div>
+                  {statusBadgeNode && (
+                    <div className="shrink-0 pt-0.5">
+                      {statusBadgeNode}
+                    </div>
+                  )}
+                </div>
+
+                {/* Avatar & Entity Row (only if entity data exists) */}
+                {hasEntity && (
+                  <div className="mt-3.5 pt-3 border-t border-slate-200/80 flex items-center gap-2.5">
+                    <div className="h-9 w-9 shrink-0 rounded-full border border-sky-200 bg-sky-50 flex items-center justify-center text-xs font-bold text-[#082A59] shadow-2xs select-none">
+                      {avatarInitials}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-slate-800 tracking-wide uppercase truncate" title={entityText}>
+                        {entityNode}
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-normal truncate mt-0.5">
+                        {entityRole}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Attributes Grid (only if non-empty columns exist) */}
+                {gridItems.length > 0 && (
+                  <div className={cn('mt-3 grid gap-2.5', gridItems.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
+                    {gridItems.map((item, idx) => (
+                      <div key={idx} className="min-w-0">
+                        <span className="text-[10.5px] text-slate-500 font-medium block truncate" title={item.label}>
+                          {item.label}
+                        </span>
+                        <div className="text-xs font-bold text-slate-800 block mt-0.5 truncate">
+                          {item.val}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Inset Box (only if non-empty metrics/details exist) */}
+                {insetItems.length > 0 && (
+                  <div className={cn('mt-3 rounded-xl bg-slate-100/75 border border-slate-200/80 p-2.5 backdrop-blur-xs', insetItems.length === 1 ? 'block' : 'grid grid-cols-2 gap-2.5')}>
+                    {insetItems.map((item, idx) => (
+                      <div key={idx} className="min-w-0">
+                        <span className="text-[10.5px] text-slate-500 font-medium block truncate" title={item.label}>
+                          {item.label}
+                        </span>
+                        <div className="text-xs md:text-[13px] font-bold text-[#082A59] block mt-0.5 truncate">
+                          {item.val}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Extra columns (if more than 4 data columns exist) */}
+                {extraItems.length > 0 && (
+                  <div className="mt-2.5 space-y-1.5 pt-2 border-t border-slate-200/80">
+                    {extraItems.map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between gap-2 text-xs">
+                        <span className="text-[10.5px] text-slate-500 truncate">{item.label}:</span>
+                        <span className="text-xs font-semibold text-slate-800 truncate text-right">{item.val}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Metadata Line (Files & Print - only if columns exist and have content) */}
+                {(hasFiles || hasPrint) && (
+                  <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 px-0.5">
+                    {hasFiles ? (
+                      <div className="truncate flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <span>Files:</span>
+                        <span className="text-[#008F8C] font-semibold hover:underline cursor-pointer">
+                          {rawFilesVal}
+                        </span>
+                      </div>
+                    ) : <div />}
+                    {hasPrint && (
+                      <div className="truncate flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <span>Print:</span>
+                        <span>{rawPrintVal}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Details (if expandable row details exist) */}
+                {details && (
+                  <div className="mt-3 pt-2.5 border-t border-slate-200/80 text-xs text-slate-600">
+                    {details}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer Action Bar */}
+              <div
+                className="mt-3.5 pt-3 border-t border-slate-200/80 flex items-center justify-between gap-2"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div>
+                  {hasOrderStatus && renderOrderStatusButton(rawOrderStatusVal, row)}
+                </div>
+
+                <div className="flex items-center gap-1 sm:gap-1.5 ml-auto">
+                  {onView && canView && (
+                    <button
+                      type="button"
+                      onClick={() => onView(row)}
+                      className="rounded-md p-1.5 text-sky-600 hover:bg-sky-50 active:scale-95 transition-all"
+                      title="View"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </button>
+                  )}
+                  {onEdit && canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => onEdit(row)}
+                      className="rounded-md p-1.5 text-amber-600 hover:bg-amber-50 active:scale-95 transition-all"
+                      title="Edit"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </button>
+                  )}
+                  {onDelete && !hideDeleteAction && canDelete && (
+                    <button
+                      type="button"
+                      onClick={() => onDelete(row)}
+                      className="rounded-md p-1.5 text-rose-600 hover:bg-rose-50 active:scale-95 transition-all"
+                      title="Delete"
+                    >
+                      <Trash className="h-4 w-4" />
+                    </button>
+                  )}
+                  {onPrint && canPrintPermission && (
+                    <button
+                      type="button"
+                      onClick={() => onPrint(row)}
+                      className="rounded-md p-1.5 text-emerald-600 hover:bg-emerald-50 active:scale-95 transition-all"
+                      title="Print"
+                    >
+                      <Printer className="h-4 w-4" />
+                    </button>
+                  )}
+                  {onClone && canAdd && (
+                    <button
+                      type="button"
+                      onClick={() => onClone(row)}
+                      className="rounded-md p-1.5 text-purple-600 hover:bg-purple-50 active:scale-95 transition-all"
+                      title="Clone"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </button>
+                  )}
+                  {renderActions && (
+                    <div className="flex items-center gap-1">
+                      {renderActions(row)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderViewModeToggle = (inHero = false) => {
+    if (!showViewToggle) return null;
+
+    return (
+      <div
+        className={
+          inHero
+            ? 'inline-flex items-center rounded-md border border-white/30 bg-white/10 p-0.5'
+            : 'inline-flex items-center rounded-lg border border-[#D8E1EA] bg-[#F7F9FB] p-0.5 shadow-2xs'
+        }
+      >
+        <button
+          type="button"
+          onClick={() => setViewMode('table')}
+          className={
+            inHero
+              ? `inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-semibold transition ${
+                  viewMode === 'table'
+                    ? 'bg-[#008F8C] text-white shadow-xs'
+                    : 'text-white/80 hover:text-white hover:bg-white/10'
+                }`
+              : `inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                  viewMode === 'table'
+                    ? 'bg-[#082A59] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-[#082A59] hover:bg-white'
+                }`
+          }
+          title="Switch to Table View"
+          aria-label="Table View"
+        >
+          <List className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Table</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode('cards')}
+          className={
+            inHero
+              ? `inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-semibold transition ${
+                  viewMode === 'cards'
+                    ? 'bg-[#008F8C] text-white shadow-xs'
+                    : 'text-white/80 hover:text-white hover:bg-white/10'
+                }`
+              : `inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                  viewMode === 'cards'
+                    ? 'bg-[#082A59] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-[#082A59] hover:bg-white'
+                }`
+          }
+          title="Switch to Cards View"
+          aria-label="Cards View"
+        >
+          <LayoutGrid className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Cards</span>
+        </button>
+      </div>
+    );
+  };
+
   const renderTopLevelActions = (inHero: boolean) => (
     <div className={`flex flex-wrap items-center gap-2 ${inHero ? 'justify-end' : 'ml-auto'}`}>
       {headerContent && (
@@ -2374,6 +3221,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
           PDF
         </button>
       )}
+      {renderViewModeToggle(inHero)}
     </div>
   );
   const heroActionsPortal = actionsInHero && routeHero?.actionTarget
@@ -2418,34 +3266,37 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
             </div>
           </div>
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center pb-3 w-full">
-            {showSearch && (
-              <div className="relative min-w-[200px] flex-shrink-0">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
-              <input
-                value={localSearchVal}
-                onChange={(e) => {
-                  setLocalSearchVal(e.target.value);
-                  if (e.target.value !== filterInput) {
-                    setIsSearching(true);
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    setFilterInput(localSearchVal);
-                    setCurrentPage(firstPage === 0 ? 0 : 1);
-                    setIsSearching(false);
-                  }
-                }}
-                placeholder={filterPlaceholder}
-                className="w-full rounded-full border border-[#D8E1EA] bg-white pl-6 pr-8 py-1.5 text-xs text-[#102F50] shadow-sm focus:border-[#008F8C] focus:outline-none focus:ring-2 focus:ring-[#008F8C]/15 font-medium"
-              />
-              {(isSearching || isLoadingFullData) && (
-                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center">
-                  <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-slate-200 border-t-[var(--primary)]"></div>
+            <div className="flex flex-wrap items-center gap-2">
+              {showSearch && (
+                <div className="relative min-w-[200px] flex-shrink-0">
+                  <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={localSearchVal}
+                    onChange={(e) => {
+                      setLocalSearchVal(e.target.value);
+                      if (e.target.value !== filterInput) {
+                        setIsSearching(true);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        setFilterInput(localSearchVal);
+                        setCurrentPage(firstPage === 0 ? 0 : 1);
+                        setIsSearching(false);
+                      }
+                    }}
+                    placeholder={filterPlaceholder}
+                    className="w-full rounded-full border border-[#D8E1EA] bg-white pl-6 pr-8 py-1.5 text-xs text-[#102F50] shadow-sm focus:border-[#008F8C] focus:outline-none focus:ring-2 focus:ring-[#008F8C]/15 font-medium"
+                  />
+                  {(isSearching || isLoadingFullData) && (
+                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center">
+                      <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-slate-200 border-t-[var(--primary)]"></div>
+                    </div>
+                  )}
                 </div>
               )}
+              {renderViewModeToggle(false)}
             </div>
-            )}
             <div className="flex flex-wrap items-center gap-2 ml-auto">
               {/* {showAddActions && onAdd && canAdd && (
                 <button
@@ -2570,12 +3421,79 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
       )}
 
       <div className="relative overflow-hidden">
-        <div 
-          ref={scrollContainerRef}
-          className="overflow-x-auto overflow-y-auto"
-          style={virtualScroll ? { maxHeight: dynamicScrollHeight } : {}}
-        >
-        <table className={`border-spacing-0 text-xs common-table ${disableColumnExpand ? 'mx-auto' : 'min-w-full'} ${tableClassName || ''}`}>
+        {viewMode === 'cards' ? (
+          <div>
+            {/* Cards View Column Filters Panel */}
+            {showToolbar && showColumnFilters && showFilters && (
+              <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
+                <div className="mb-2.5 flex items-center justify-between border-b border-slate-100 pb-2">
+                  <span className="text-xs font-bold text-[#082A59] uppercase tracking-wider flex items-center gap-1.5">
+                    <Filter className="h-3.5 w-3.5 text-[#008F8C]" />
+                    Column Filters
+                  </span>
+                  {hasActiveFilters && (
+                    <button
+                      onClick={clearAllFilters}
+                      className="text-xs font-medium text-rose-600 hover:underline flex items-center gap-1"
+                    >
+                      <X className="h-3 w-3" />
+                      Clear all filters
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {enhancedColumns
+                    .filter(c => !c.disableFilters && !isActionCol(c) && !isSerialCol(c) && !isSelectCol(c))
+                    .map(column => {
+                      const isMaster = isMasterColumn(column);
+                      const dropdownOpts = columnDropdownOptions[column.id] || [];
+                      const label = typeof column.Header === 'string' ? column.Header : (column.id || column.accessorKey);
+                      return (
+                        <div key={`card-filter-${column.id}`} className="flex flex-col gap-1">
+                          <label className="text-[10.5px] font-semibold text-slate-600 uppercase tracking-tight truncate" title={label}>
+                            {label}
+                          </label>
+                          {column.Filter ? (
+                            <column.Filter
+                              column={{
+                                id: column.id,
+                                filterValue: columnFilters[column.id] || {},
+                                setFilter: (value: any) => handleColumnFilterChange(column.id, value)
+                              }}
+                            />
+                          ) : isMaster ? (
+                            <SelectColumnFilter
+                              column={{
+                                id: column.id,
+                                Header: column.Header,
+                                filterValue: columnFilters[column.id] || '',
+                                setFilter: (value: any) => handleColumnFilterChange(column.id, value)
+                              }}
+                              options={dropdownOpts}
+                            />
+                          ) : (
+                            <DefaultColumnFilter
+                              column={{
+                                filterValue: columnFilters[column.id] || '',
+                                setFilter: (value: any) => handleColumnFilterChange(column.id, value)
+                              }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+            {renderCardsView()}
+          </div>
+        ) : (
+          <div 
+            ref={scrollContainerRef}
+            className="overflow-x-auto overflow-y-auto"
+            style={virtualScroll ? { maxHeight: dynamicScrollHeight } : {}}
+          >
+            <table className={`border-spacing-0 text-xs common-table ${disableColumnExpand ? 'mx-auto' : 'min-w-full'} ${tableClassName || ''}`}>
             <thead className="bg-[#082A59] text-sm font-semibold uppercase tracking-wide text-white">
               {headerGroups.map((headerGroup, groupIndex) => (
                 <tr key={groupIndex}>
@@ -2735,144 +3653,28 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
                             : (getRowClassName?.(row) || 'bg-white')
                         } border-slate-200 transition hover:bg-[var(--primary-50)] ${onRowClick ? 'cursor-pointer' : ''}`}
                       >
-                        {enhancedColumns.map((column, colIdx) => {
-                          let cellValue = typeof column.accessor === 'function' 
-                            ? column.accessor(row) 
-                            : (row[column.accessor] !== undefined ? row[column.accessor] : row[column.accessorKey]);
-
-                          // Recompute Serial Number for filtered dataset consistency
-                          if (column.accessor === 'serialNo' || column.Header === 'S.No') {
-                            cellValue = externalOffset + (virtualScroll ? index : (currentPage - firstPage) * pageSize + index) + 1;
-                          }
-
-                          // Format decimals if the column contains quantity, meter, mtr, or amount
-                          if (!disableAutoFormatting && isNumericFormattedColumn(column.Header, column.accessor ?? column.accessorKey)) {
-                            if (cellValue != null && cellValue !== '') {
-                              const num = Number(cellValue);
-                              if (!isNaN(num)) {
-                                cellValue = Math.round(num * 100) / 100;
-                              }
-                            }
-                          }
-
-                          // Format Fabric Code if needed
-                          const headerStr = typeof column.Header === 'string' ? column.Header : '';
-                          const accessorStr = typeof column.accessor === 'string' ? column.accessor : (column.accessorKey || '');
-                          const isFabricCodeCol = headerStr.toLowerCase().includes('fabric code') || 
-                                                  headerStr.toLowerCase().includes('fabriccode') ||
-                                                   headerStr.toLowerCase().includes('sortNo') ||
-                                                   headerStr.toLowerCase().includes('sort no') ||
-                                                  accessorStr.toLowerCase().includes('fabriccode') ||
-                                                  accessorStr.toLowerCase().includes('fabricmasterid') ||
-                                                  accessorStr.toLowerCase().includes('fabriccodeid') ||
-                                                  accessorStr.toLowerCase().includes('fabricid');
-                          const isSizing = typeof title === 'string' && title.toLowerCase().includes('sizing');
-                          const isFabricQualityCol = headerStr.toLowerCase().includes('fabric quality') || 
-                                                     headerStr.toLowerCase().includes('fabricquality') ||
-                                                     accessorStr.toLowerCase().includes('fabricquality') ||
-                                                     accessorStr.toLowerCase().includes('fabric_quality');
-
-                          const shouldFormatFabric = isFabricCodeCol || (isSizing && isFabricQualityCol);
-
-                          if (!disableAutoFormatting && shouldFormatFabric && (!hasBothFabricColumns || (isSizing && isFabricQualityCol))) {
-                            const isFormatted = typeof cellValue === 'string' && cellValue.includes(' - ');
-                            if (!isFormatted) {
-                              const fabricId = row.fabricMasterId ?? row.fabricCodeId ?? row.fabricId ?? cellValue;
-                              if (fabricId != null && fabricId !== '') {
-                                let fabric = [...fabricMasterFullList, ...fabricMasterList].find(f => 
-                                  f.id !== undefined && String(f.id) === String(fabricId)
-                                );
-                                if (!fabric && typeof fabricId === 'string') {
-                                  fabric = [...fabricMasterFullList, ...fabricMasterList].find(f => 
-                                    f.fabricCode !== undefined && String(f.fabricCode).toLowerCase() === fabricId.toLowerCase()
-                                  );
-                                }
-                                if (fabric) {
-                                  const code = fabric.fabricCode || fabric.fabric_code || fabric.code || '';
-                                  const quality = fabric.fabricQuality || fabric.quality || fabric.fabric_quality || '';
-                                  if (code || quality) {
-                                    cellValue = code && quality ? `${code} - ${quality}` : (code || quality);
-                                  }
-                                }
-                              }
-                            }
-                          }
-
-                          return (
-                            <td
-                              key={column.id || colIdx}
-                              style={{
-                                width: columnWidths[column.id] ? `${columnWidths[column.id]}px` : (typeof column.width === 'number' ? `${column.width}px` : column.width || 'auto'),
-                                minWidth: columnWidths[column.id] ? `${columnWidths[column.id]}px` : (column.minWidth ? `${column.minWidth}px` : (typeof column.width === 'number' ? `${column.width}px` : undefined)),
-                                maxWidth: columnWidths[column.id] ? `${columnWidths[column.id]}px` : (typeof column.width === 'number' ? `${column.width}px` : undefined),
-                              }}
-                              className={`border-b border-r border-slate-300 px-2 py-1 text-left align-middle ${bodyCellClassName || 'text-[12.5px]'} ${column.isSectionStart ? 'border-l-4 border-l-[#D0A45D]' : ''} ${column.cellClassName || ''}`}
-                            >
-                              <div className={column.cellContentClassName !== undefined ? column.cellContentClassName : (cellContentClassName !== undefined ? cellContentClassName : "overflow-hidden whitespace-nowrap text-ellipsis")}>
-                                {column.Cell ? column.Cell({ value: cellValue, row: { original: row, index: externalOffset + (virtualScroll ? index : (currentPage - firstPage) * pageSize + index) } }) : cellValue}
-                              </div>
-                            </td>
-                          );
-                        })}
+                        {enhancedColumns.map((column, colIdx) => (
+                          <td
+                            key={column.id || colIdx}
+                            style={{
+                              width: columnWidths[column.id] ? `${columnWidths[column.id]}px` : (typeof column.width === 'number' ? `${column.width}px` : column.width || 'auto'),
+                              minWidth: columnWidths[column.id] ? `${columnWidths[column.id]}px` : (column.minWidth ? `${column.minWidth}px` : (typeof column.width === 'number' ? `${column.width}px` : undefined)),
+                              maxWidth: columnWidths[column.id] ? `${columnWidths[column.id]}px` : (typeof column.width === 'number' ? `${column.width}px` : undefined),
+                            }}
+                            className={`border-b border-r border-slate-300 px-2 py-1 text-left align-middle ${bodyCellClassName || 'text-[12.5px]'} ${column.isSectionStart ? 'border-l-4 border-l-[#D0A45D]' : ''} ${column.cellClassName || ''}`}
+                          >
+                            <div className={column.cellContentClassName !== undefined ? column.cellContentClassName : (cellContentClassName !== undefined ? cellContentClassName : "overflow-hidden whitespace-nowrap text-ellipsis")}>
+                              {formatCellValue(column, row, mapIdx)}
+                            </div>
+                          </td>
+                        ))}
                         {showActions && (
                           <td
                             className="px-1.5 py-1 whitespace-nowrap text-xs text-right border-b border-r border-slate-600"
                             style={Object.keys(columnWidths).length > 0 ? { width: '150px' } : {}}
                             onClick={e => e.stopPropagation()}
                           >
-                            {(() => {
-                              const customActions = renderActions ? renderActions(row) : null;
-                              if (customActions) return customActions;
-                              return (!canShowActions || canShowActions(row)) && (
-                                <div className="flex items-center justify-center gap-1.5">
-                                  {onView && canView && (
-                                    <button
-                                      onClick={() => onView(row)}
-                                      className="rounded-md border border-[var(--primary-200)] bg-[var(--primary-50)] p-1.5 text-[var(--primary)] transition hover:border-[var(--primary-500)]"
-                                      title="View"
-                                    >
-                                      <Eye className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                  {onEdit && canEdit && (
-                                    <button
-                                      onClick={() => onEdit(row)}
-                                      className="rounded-lg border border-amber-100 bg-amber-50/60 p-1.5 text-amber-600 transition hover:border-amber-200"
-                                      title="Edit"
-                                    >
-                                      <Edit className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                  {onPrint && canPrintPermission && (
-                                    <button
-                                      onClick={() => onPrint(row)}
-                                      className="rounded-lg border border-[#CBE7E5] bg-[#E9F4F4] p-1.5 text-[#007F7C] transition hover:border-[#93D0CD]"
-                                      title="Print"
-                                    >
-                                      <Printer className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                  {onClone && canAdd && (
-                                    <button
-                                      onClick={() => onClone(row)}
-                                      className="rounded-lg border border-purple-100 bg-purple-50/60 p-1.5 text-purple-600 transition hover:border-purple-200"
-                                      title="Clone"
-                                    >
-                                      <Copy className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                  {onDelete && !hideDeleteAction && canDelete && (
-                                    <button
-                                      onClick={() => onDelete(row)}
-                                      className="rounded-lg border border-rose-100 bg-rose-50/70 p-1.5 text-rose-600 transition hover:border-rose-200"
-                                      title="Delete"
-                                    >
-                                      <Trash className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                </div>
-                              );
-                            })()}
+                            {renderRowActions(row)}
                           </td>
                         )}
                       </tr>
@@ -2977,6 +3779,7 @@ const applyCustomFilter = useCallback((data: any[], column: any, filterValue: an
             </tbody>
           </table>
         </div>
+        )}
       </div>
 
       {isShowPagination && <div className="no-print border-t border-slate-100 bg-white px-6 py-5">

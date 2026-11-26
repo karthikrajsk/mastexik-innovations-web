@@ -3313,7 +3313,7 @@ export function PurchaseOrderEntry() {
 
                   <Button
                     onClick={addItem}
-                    className="mt-4 ml-auto flex items-center"
+                    className="mt-4 ml-auto flex items-center bg-primary hover:bg-primary text-white"
                   >
                     <Plus size={18} className="mr-2" />
                     {editingIndex !== null ? "Update Item" : "Add Item"}

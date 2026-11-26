@@ -7,11 +7,9 @@ import {
   LayoutDashboard,
   FileText,
   Settings,
-  Menu,
   X,
   BadgeIndianRupee,
   BadgePercent,
-  ChevronLeft,
   Users,
   Bell,
   LogOut,
@@ -81,9 +79,9 @@ function SidebarItem({
         <button
           onClick={handleClick}
           className={cn(
-            'w-full flex items-center px-3 py-2.5 transition-all duration-200',
-            !isActive && 'rounded-md hover:bg-accent/5',
-            isActive && !collapsed && 'sidebar-active-arrow text-white font-medium',
+            'w-full flex items-center px-2.5 py-2 transition-all duration-200 text-[12px]',
+            !isActive && 'rounded-md hover:bg-white/10',
+            isActive && !collapsed && 'sidebar-active-arrow text-white font-semibold',
             isActive && collapsed && 'bg-primary text-white font-medium rounded-md',
             collapsed ? 'justify-center' : 'justify-between',
           )}
@@ -122,11 +120,11 @@ function SidebarItem({
 
         <div
           className={cn(
-            'overflow-hidden transition-all duration-200',
-            isOpen && !collapsed ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0',
+            'grid overflow-hidden transition-[grid-template-rows,opacity] duration-200',
+            isOpen && !collapsed ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
           )}
         >
-          <div className="ml-1 mt-1 space-y-1 border-border pl-2 max-h-[60vh] overflow-y-auto custom-scrollbar text-sm">
+          <div className="min-h-0 ml-1 mt-1 space-y-1 border-border pl-2 text-sm">
             {children}
           </div>
         </div>
@@ -145,9 +143,9 @@ function SidebarItem({
         }}
         className={({ isActive }) =>
           cn(
-            'flex items-center px-3 py-2.5 transition-all duration-200',
-            !isActive && 'rounded-md hover:bg-accent/5',
-            isActive && !collapsed && 'sidebar-active-arrow text-white font-medium',
+            'flex items-center px-2.5 py-2 transition-all duration-200 text-[12px]',
+            !isActive && 'rounded-md hover:bg-white/10',
+            isActive && !collapsed && 'sidebar-active-arrow text-white font-semibold',
             isActive && collapsed && 'bg-primary text-white font-medium rounded-md',
             collapsed ? 'justify-center' : '',
           )
@@ -178,8 +176,6 @@ function SidebarItem({
 }
 
 interface SidebarProps {
-  collapsed?: boolean;
-  onCollapse: (collapsed: boolean) => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
 }
@@ -194,26 +190,10 @@ const getActiveSubmenu = (path: string) => {
   return '';
 };
 
-export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = false, onMobileClose }: SidebarProps) {
+export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [internalCollapsed, setInternalCollapsed] = useState(() => {
-    return localStorage.getItem('sidebar_collapsed') === 'true';
-  });
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1024);
-
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 1024);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  const desktopCollapsed = propCollapsed !== undefined ? propCollapsed : internalCollapsed;
-  // On mobile screens (< 1024px) or when the mobile drawer is open, the sidebar is NEVER collapsed!
-  // It is a full slide-in overlay drawer with visible menu labels and expandable submenus.
-  const collapsed = (isMobile || mobileOpen) ? false : desktopCollapsed;
+  const collapsed = false;
   const [openSubmenus, setOpenSubmenus] = useState<string[]>(() => {
     const initial = getActiveSubmenu(location.pathname);
     return initial ? [initial] : [];
@@ -536,17 +516,7 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
     });
   }, [location.pathname, userMenus]);
 
-  const handleCollapse = (value: boolean) => {
-    setInternalCollapsed(value);
-    localStorage.setItem('sidebar_collapsed', String(value));
-    onCollapse(value);
-  };
-
-  const expandSidebar = () => {
-    if (desktopCollapsed) {
-      handleCollapse(false);
-    }
-  };
+  const expandSidebar = () => undefined;
 
   const toggleSubmenu = (label: string) => {
     setOpenSubmenus((prev) => {
@@ -577,44 +547,26 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
 
       <aside
         className={cn(
-          'fixed top-0 left-0 h-full bg-surface border-r border-border transition-all duration-300 z-40 shadow-lg flex flex-col',
-          collapsed ? 'w-16' : 'w-72',
+          'fixed inset-y-0 left-0 h-auto w-full rounded-none bg-[#082A59] text-white transition-transform duration-300 z-40 shadow-[0_14px_36px_rgba(6,30,65,0.24)] flex flex-col overflow-visible',
+          'lg:inset-y-3 lg:left-3 lg:w-[216px] lg:rounded-2xl',
           mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
         )}
       >
-        <div className="flex items-center justify-between h-16 px-4 border-b border-border shrink-0">
-          {!collapsed && (
-            <h1 className="text-2xl font-extrabold bg-gradient-to-r from-blue-500 to-red-500 text-transparent bg-clip-text drop-shadow-md flex items-center">
-              TEXT
-              <span className="relative text-blue-500">
-                I
-                <span className="absolute -top-1 left-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-              </span>
-              <span className="text-red-500">PRO</span>
-            </h1>
-          )}
+        <div className="flex h-[60px] items-center justify-between border-b border-white/10 px-2.5 shrink-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#D0A45D] font-serif text-sm font-bold text-[#082A59]">T</span>
+            <div className="min-w-0 leading-tight">
+              <p className="truncate font-serif text-[15px] font-semibold tracking-wide text-[#FFFDF8]">TextPro</p>
+              <p className="truncate text-[9px] uppercase tracking-[0.13em] text-white/55">Textile ERP</p>
+            </div>
+          </div>
 
           <div className="flex items-center gap-2 relative z-50">
-            <ThemeSelector alignOutside={collapsed} />
-            <button
-              onClick={() => handleCollapse(!desktopCollapsed)}
-              className={cn(
-                'w-8 h-8 flex items-center justify-center rounded-full transition-colors',
-                'hover:bg-accent/10 bg-gray-200 text-blue-500',
-                'absolute ml-8 hidden lg:flex',
-                desktopCollapsed ? 'ml-8' : '',
-              )}
-            >
-              <ChevronLeft
-                className={cn(
-                  'w-5 h-5 transition-transform duration-300',
-                  desktopCollapsed && 'rotate-180',
-                )}
-              />
-            </button>
+            <ThemeSelector alignOutside={false} />
             <button
               onClick={onMobileClose}
-              className="w-8 h-8 flex items-center justify-center rounded-full text-text-primary hover:bg-accent/5 transition-colors lg:hidden"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white lg:hidden"
+              aria-label="Close menu"
             >
               <X className="w-5 h-5" />
             </button>
@@ -623,7 +575,7 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
 
         <nav
           onClick={handleNavClick}
-          className="p-3 space-y-1 overflow-y-auto flex-1 custom-scrollbar"
+          className="sidebar-nav flex-1 space-y-1 overflow-y-auto p-2"
         >
           <SidebarItem
             to="/"
@@ -1448,7 +1400,7 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
         </nav>
 
         {/* Bottom Section: Profile, Notifications & Logout */}
-        <div className="p-3 border-t border-border bg-surface shrink-0 relative" ref={notificationRef}>
+        <div className="relative mx-2 mb-2 shrink-0 rounded-xl border border-white/15 bg-white/[0.06] p-2" ref={notificationRef}>
           {/* Notification Popup Drawer */}
           {showNotifications && (
             <div className={cn(
@@ -1458,7 +1410,7 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
               {/* Header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-secondary-100">
                 <div className="flex items-center gap-2">
-                  <Bell className="w-4 h-4 text-indigo-600" />
+                  <Bell className="w-4 h-4 text-[#008F8C]" />
                   <h3 className="font-semibold text-secondary-900 text-sm">Notifications</h3>
                   {unreadCount > 0 && (
                     <span className="bg-red-100 text-red-600 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
@@ -1469,7 +1421,7 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
                 {unreadCount > 0 && (
                   <button
                     onClick={handleMarkAllAsRead}
-                    className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                    className="flex items-center gap-1 text-xs text-[#008F8C] hover:text-[#082A59] font-medium"
                   >
                     <CheckCheck className="w-3.5 h-3.5" />
                     Mark all read
@@ -1491,12 +1443,12 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
                     key={n.id}
                     className={cn(
                       'px-4 py-3 border-b border-secondary-50 hover:bg-secondary-50 transition-colors',
-                      !n.isRead && 'bg-indigo-50 hover:bg-indigo-50/80',
+                      !n.isRead && 'bg-[#E9F3F8] hover:bg-[#DCEBF3]',
                     )}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide truncate">
+                        <p className="text-xs font-semibold text-[#008F8C] uppercase tracking-wide truncate">
                           {getScreenName(n.eventType)}
                         </p>
                         <p className="text-sm text-secondary-800 mt-0.5 leading-snug">
@@ -1508,12 +1460,12 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
                       </div>
                       <div className="flex flex-col items-end gap-1.5 shrink-0">
                         {!n.isRead && (
-                          <span className="w-2 h-2 rounded-full bg-indigo-500 mt-1" />
+                          <span className="w-2 h-2 rounded-full bg-[#008F8C] mt-1" />
                         )}
                         {n.screenPath && (
                           <button
                             onClick={() => handleView(n.screenPath, n.id, n.referenceId)}
-                            className="flex items-center gap-1 text-[11px] text-indigo-600 hover:text-indigo-800 font-medium whitespace-nowrap"
+                            className="flex items-center gap-1 text-[11px] text-[#008F8C] hover:text-[#082A59] font-medium whitespace-nowrap"
                           >
                             <ExternalLink className="w-3 h-3" />
                             View
@@ -1532,14 +1484,14 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
 
                 {notifLoading && (
                   <div className="flex justify-center py-4">
-                    <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                    <div className="w-5 h-5 border-2 border-[#008F8C] border-t-transparent rounded-full animate-spin" />
                   </div>
                 )}
 
                 {hasMore && !notifLoading && notifications.length > 0 && (
                   <button
                     onClick={handleLoadMore}
-                    className="w-full py-2.5 text-xs text-indigo-600 hover:text-indigo-800 font-medium border-t border-secondary-100"
+                    className="w-full py-2.5 text-xs text-[#008F8C] hover:text-[#082A59] font-medium border-t border-secondary-100"
                   >
                     Load more
                   </button>
@@ -1553,14 +1505,14 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
             <div className="flex items-center justify-between gap-2">
               {/* Profile info */}
               <div className="flex items-center gap-2 min-w-0 flex-1">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-primary-500 to-primary-600 flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-full bg-[#0B376E] border border-[#D0A45D] flex items-center justify-center shrink-0">
                   <span className="text-white font-medium text-sm">
                     {username.charAt(0).toUpperCase() || 'U'}
                   </span>
                 </div>
                 <div className="min-w-0 text-left">
-                  <p className="text-xs font-semibold text-secondary-900 truncate">{username}</p>
-                  <p className="text-[10px] font-semibold text-indigo-600 uppercase tracking-tight truncate">
+                  <p className="text-xs font-semibold text-white truncate">{username}</p>
+                  <p className="text-[10px] font-semibold text-[#D0A45D] uppercase tracking-tight truncate">
                     {companyName || computedCompanyName}
                   </p>
                 </div>
@@ -1570,7 +1522,7 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
               <div className="flex items-center gap-1 shrink-0">
                 <button
                   onClick={() => setShowNotifications(!showNotifications)}
-                  className="p-1.5 rounded-full hover:bg-secondary-100 relative text-secondary-600"
+                  className="p-1.5 rounded-full hover:bg-white/10 relative text-white/80 hover:text-white transition-colors"
                   aria-label="Notifications"
                 >
                   <Bell className="w-5 h-5" />
@@ -1583,7 +1535,7 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
 
                 <button
                   onClick={() => setShowLogoutDialog(true)}
-                  className="p-1.5 rounded-full hover:bg-red-50 text-secondary-500 hover:text-red-600 transition-colors"
+                  className="p-1.5 rounded-full hover:bg-white/10 text-white/70 hover:text-[#D0A45D] transition-colors"
                   aria-label="Logout"
                 >
                   <LogOut className="w-4 h-4" />
@@ -1594,7 +1546,7 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
             <div className="flex flex-col items-center gap-3">
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
-                className="p-1.5 rounded-full hover:bg-secondary-100 relative text-secondary-600"
+                className="p-1.5 rounded-full hover:bg-white/10 relative text-white/80 hover:text-white transition-colors"
                 aria-label="Notifications"
               >
                 <Bell className="w-5 h-5" />
@@ -1605,7 +1557,7 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
                 )}
               </button>
 
-              <div className="w-8 h-8 rounded-full bg-gradient-to-r from-primary-500 to-primary-600 flex items-center justify-center shrink-0" title={`${username} - ${companyName || computedCompanyName}`}>
+              <div className="w-8 h-8 rounded-full bg-[#0B376E] border border-[#D0A45D] flex items-center justify-center shrink-0" title={`${username} - ${companyName || computedCompanyName}`}>
                 <span className="text-white font-medium text-xs">
                   {username.charAt(0).toUpperCase() || 'U'}
                 </span>
@@ -1613,7 +1565,7 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
 
               <button
                 onClick={() => setShowLogoutDialog(true)}
-                className="p-1.5 rounded-full hover:bg-red-50 text-secondary-500 hover:text-red-600 transition-colors"
+                className="p-1.5 rounded-full hover:bg-white/10 text-white/70 hover:text-[#D0A45D] transition-colors"
                 aria-label="Logout"
               >
                 <LogOut className="w-4 h-4" />
@@ -1645,7 +1597,7 @@ export function Sidebar({ collapsed: propCollapsed, onCollapse, mobileOpen = fal
               </button>
               <button
                 onClick={handleLogout}
-                className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg hover:from-blue-700 hover:to-blue-800"
+                className="px-4 py-2 text-sm font-medium text-white bg-[#082A59] rounded-md hover:bg-[#0B376E]"
               >
                 Logout
               </button>

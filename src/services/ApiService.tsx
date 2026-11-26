@@ -7,8 +7,8 @@ const API_PORTS: Record<string, string> = {
 };
 
 // Get the current host (e.g., localhost, staging.example.com)
-// const currentHost = window.location.hostname;
-const currentHost = '165.232.177.255';   
+const currentHost = window.location.hostname;
+// const currentHost = '165.232.177.255';   
 console.log('currentHost', currentHost)
 
 // Set the base URL dynamically
